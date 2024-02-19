@@ -1,8 +1,12 @@
 # script_graph_multi_k.py
 
+from constant import RES_OUTPUT_FOLDER
+
 from  utils import get_args
 from  graph import graph_multi_k
 from visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
+
+import os
 
 import matplotlib.pyplot as plt
 
@@ -51,18 +55,18 @@ if __name__ == '__main__':
             kmins, kmaxs = [3,4,5,3], [3,4,5,5]
     # kwargs = {"ref_seq":"abcdefghijkl", "reads":["abcd","cdef","efgh", "ijkl"], "shuffle":True}
     # kmins, kmaxs = [3,4,3], [3,4,4] 
-
-    nrow, ncol = len(kmins), 2
-    plt.switch_backend("cairo")
-    fig, axs = plt.subplots(nrow, ncol, squeeze=False, figsize=(8*ncol,5*nrow))
-    for i, (kmin, kmax) in enumerate(zip(kmins, kmaxs)):
-        ref_seq, reads, kmers, g, unitigs, c_g = graph_multi_k(**kwargs, kmin = kmin, kmax = kmax)
-        print(kmers, unitigs)
-        plot_debruijn_graph_gt(g, kmers, "res/"+args.exp+"graph.png", ref_seq=ref_seq, axext=axs[i,0])
-        axs[i,0].set_title("DB graph (kmin={}, kmax={})".format(kmin,kmax), fontweight="bold")
-        plot_compacted_debruijn_graph_gt(c_g, unitigs, "res/"+args.exp+"compacted_graph.png", ref_seq=ref_seq, axext=axs[i,1])
-        axs[i,1].set_title("Compacted DB graph (kmin={}, kmax={})".format(kmin,kmax), fontweight="bold")
-    fig.tight_layout()
-    plt.axis("off")
-    fig.savefig("res/"+args.exp+"_full.png")
+    if kwargs:
+        nrow, ncol = len(kmins), 2
+        plt.switch_backend("cairo")
+        fig, axs = plt.subplots(nrow, ncol, squeeze=False, figsize=(8*ncol,5*nrow))
+        for i, (kmin, kmax) in enumerate(zip(kmins, kmaxs)):
+            ref_seq, reads, kmers, g, unitigs, c_g = graph_multi_k(**kwargs, kmin = kmin, kmax = kmax)
+            print(kmers, unitigs)
+            plot_debruijn_graph_gt(g, kmers, os.path.join(RES_OUTPUT_FOLDER, args.exp+"graph.png"), ref_seq=ref_seq, axext=axs[i,0])
+            axs[i,0].set_title("DB graph (kmin={}, kmax={})".format(kmin,kmax), fontweight="bold")
+            plot_compacted_debruijn_graph_gt(c_g, unitigs, os.path.join(RES_OUTPUT_FOLDER, args.exp+"compacted_graph.png"), ref_seq=ref_seq, axext=axs[i,1])
+            axs[i,1].set_title("Compacted DB graph (kmin={}, kmax={})".format(kmin,kmax), fontweight="bold")
+        fig.tight_layout()
+        plt.axis("off")
+        fig.savefig(os.path.join(RES_OUTPUT_FOLDER, args.exp+"_full.png"))
         
