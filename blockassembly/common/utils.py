@@ -14,7 +14,11 @@ def get_args():
     return args
 
 
-def check_args(verbose=False,ref_seq = None, alphabet = ["a","t","c","g"], ref_length = None, cyclic=False,
+def rev_comp(numseq):
+    return -numseq[::-1]
+
+
+def check_args(verbose=False,ref_seq = None, alphabet = None, ref_length = None, cyclic=False,
                   reads = None, read_length = None, n_reads = None, mean_coverage = None,
                   kmin = 4, kmax = None, seed = 4, shuffle = False):
     np.random.seed(seed)
@@ -27,7 +31,7 @@ def check_args(verbose=False,ref_seq = None, alphabet = ["a","t","c","g"], ref_l
             print("Generate ref_seq with {} characters: ".format(ref_length), end="")
     else:
         ref_length = len(ref_seq)
-        alphabet = list(np.unique(list(ref_seq)))
+        alphabet = [("a","t"),("c","g")]
         if verbose:
             print("Reference sequence as input:",end="")
     if verbose:
@@ -37,7 +41,7 @@ def check_args(verbose=False,ref_seq = None, alphabet = ["a","t","c","g"], ref_l
             print(ref_seq)
 
     # Create bi_alphabet
-    bi_alphabet = (alphabet,{k:i for i,k in enumerate(alphabet)})
+    bi_alphabet = (alphabet,{k:((i+1)*((-1)**j)) for i, ks in enumerate(alphabet) for j, k in enumerate(ks)})
 
     # Check reads and its related variables
     if reads is None:
@@ -130,37 +134,44 @@ def unitig_classification(u1, u2):
     return sorted_unitigs
 
 def seq2num(seq, bi_alphabet):
-    dtype = np.uint8 if len(bi_alphabet[0])<256 else np.uint16
+    dtype = np.int8 if len(bi_alphabet[0])<128 else np.int16
     num = np.array([bi_alphabet[1][l] for l in seq], dtype=dtype)
     return num
 
 def num2seq(num, bi_alphabet):
-    seq = "".join(np.array([bi_alphabet[0][n] for n in num]))
+    # print(bi_alphabet)
+    # print(num)
+    # print([(abs(n)-1,(-np.sign(n)+1)//2) for n in num])
+    seq = "".join(np.array([bi_alphabet[0][abs(n)-1][(-np.sign(n)+1)//2] for n in num]))
     return seq
 
-def numseq2str(ns, n_max):
-    b = int(np.ceil(np.log10(n_max)))+1
-    s = ""
-    for c in ns:
-        s= s + ('{:'+str(b)+'d}').format(c)
-    return s
+# def numseq2str(ns, n_max):
+#     b = int(np.ceil(np.log10(n_max)))+1
+#     s = ""
+#     for c in ns:
+#         s= s + ('{:'+str(b)+'d}').format(c)
+#     return s
 
-def str2numseq(s, n_max):
-    dtype = np.uint8 if n_max<256 else np.uint16
-    b = int(np.ceil(np.log10(n_max)))+1
-    return np.array([int(s[k*b:(k+1)*b]) for k in range(len(s)//b)], dtype = dtype)
+# def str2numseq(s, n_max):
+#     dtype = np.int8 if n_max<256 else np.int16
+#     b = int(np.ceil(np.log10(n_max)))+1
+#     return np.array([int(s[k*b:(k+1)*b]) for k in range(len(s)//b)], dtype = dtype)
 
-def numseq2bytes(ns , n_b=1):
+def numseq2bytes(ns , n_b=2):
+    # print("nb numseq2b ", ns, n_b)
     bs = b''
     for n in ns:
-        bs = bs + int(n).to_bytes(n_b, "big")
+        bs = bs + int(n).to_bytes(n_b, "big", signed=True)
     return bs
 
-def bytes2numseq(bs, n_b=1):
+def bytes2numseq(bs, n_b=2):
+    # print("nb b2numseq ", n_b)
     match n_b:
         case 1:
-            dtype = np.uint8
+            dtype = np.int8
         case 2:
-            dtype = np.uint16
-    return np.array([int.from_bytes(bs[k*n_b:(k+1)*n_b],"big") for k in range(len(bs)//n_b)], dtype=dtype)
+            dtype = np.int16
+    ns = np.array([int.from_bytes(bs[k*n_b:(k+1)*n_b],"big",signed=True) for k in range(len(bs)//n_b)], dtype=dtype)
+    # print(ns)
+    return ns
     

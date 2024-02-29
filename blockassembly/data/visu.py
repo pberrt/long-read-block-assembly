@@ -10,46 +10,46 @@ import graph_tool.all as gt
 
 
 
-def plot_debruijn_graph_toyplot(edges, kmers, file = None, width=1000, height=1000):
-    "returns a toyplot graph from an input of edges"
-    graph = toyplot.graph(
-        np.array(list(edges)),
-        [k for k in kmers],
-        width=width,
-        height=height,
-        tmarker=">", 
-        vsize=25,
-        vstyle={"stroke": "none", "stroke-width": 2, "fill": "none"},
-        vlstyle={"font-size": "11px","fill":"white"},
-        estyle={"stroke": "blue", "stroke-width": 2},
-        layout=toyplot.layout.FruchtermanReingold(edges=toyplot.layout.CurvedEdges()))
-    graph[0].style= {"background-color":"dimgrey"}
-    if file is not None:
-        toyplot.html.render(graph[0], file)
-    return graph
+# def plot_debruijn_graph_toyplot(edges, kmers, file = None, width=1000, height=1000):
+#     "returns a toyplot graph from an input of edges"
+#     graph = toyplot.graph(
+#         np.array(list(edges)),
+#         [k for k in kmers],
+#         width=width,
+#         height=height,
+#         tmarker=">", 
+#         vsize=25,
+#         vstyle={"stroke": "none", "stroke-width": 2, "fill": "none"},
+#         vlstyle={"font-size": "11px","fill":"white"},
+#         estyle={"stroke": "blue", "stroke-width": 2},
+#         layout=toyplot.layout.FruchtermanReingold(edges=toyplot.layout.CurvedEdges()))
+#     graph[0].style= {"background-color":"dimgrey"}
+#     if file is not None:
+#         toyplot.html.render(graph[0], file)
+#     return graph
 
 
 
-def plot_compacted_debruijn_graph_toyplot(edges, unitigs, file = None, width=500, height=500):
-    "returns a toyplot graph from an input of edges"
-    if len(edges)==0:
-        n=len(unitigs)
-        edges = [[i,i] for i in range(n)]
-    graph = toyplot.graph(
-        np.array(list(edges)),
-        [k for k in range(len(unitigs))],
-        width=width,
-        height=height,
-        tmarker=">", 
-        vsize=25,
-        vstyle={"stroke": "none", "stroke-width": 1, "fill": "black"},
-        vlstyle={"font-size": "11px","fill":"white"},
-        estyle={"stroke": "red", "stroke-width": 2},
-        layout=toyplot.layout.FruchtermanReingold(edges=toyplot.layout.CurvedEdges()))
-    graph[0].style= {"background-color":"dimgrey"}
-    if file is not None:
-        toyplot.html.render(graph[0], file)
-    return graph
+# def plot_compacted_debruijn_graph_toyplot(edges, unitigs, file = None, width=500, height=500):
+#     "returns a toyplot graph from an input of edges"
+#     if len(edges)==0:
+#         n=len(unitigs)
+#         edges = [[i,i] for i in range(n)]
+#     graph = toyplot.graph(
+#         np.array(list(edges)),
+#         [k for k in range(len(unitigs))],
+#         width=width,
+#         height=height,
+#         tmarker=">", 
+#         vsize=25,
+#         vstyle={"stroke": "none", "stroke-width": 1, "fill": "black"},
+#         vlstyle={"font-size": "11px","fill":"white"},
+#         estyle={"stroke": "red", "stroke-width": 2},
+#         layout=toyplot.layout.FruchtermanReingold(edges=toyplot.layout.CurvedEdges()))
+#     graph[0].style= {"background-color":"dimgrey"}
+#     if file is not None:
+#         toyplot.html.render(graph[0], file)
+#     return graph
 
 def plot_dbg_axis(G,pos,labels, ref_seq, ax):
     font = {"color": "k", "fontsize": 12}
@@ -240,7 +240,7 @@ def plot_cdbg_axis_gt(g, pos, unitigs, ref_seq, ax, plot_graph=True):
     max_unitigs = 10
     n = min(len(unitigs),max_unitigs)
 
-    for k, u in enumerate(unitigs[0:max_unitigs]):
+    for k, u in enumerate(unitigs[0:n]):
         max_char = 23 if plot_graph else 63
         if k==(max_unitigs-1) and n!=len(unitigs):
             lab = "..."

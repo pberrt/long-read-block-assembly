@@ -1,10 +1,11 @@
 # script_graph_multi_k.py
 
-from constant import RES_OUTPUT_FOLDER
+import sys
+sys.path.append('..')
 
-from  utils import get_args
-from  graph import graph_multi_k
-from visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
+from  blockassembly.common.utils import get_args
+from  blockassembly.graph.graph import graph_multi_k
+from blockassembly.data.visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
 
 import os
 
@@ -13,13 +14,17 @@ import matplotlib.pyplot as plt
 
 
 if __name__ == '__main__':
-
+    
+    PROJECT_FOLDER = os.getcwd()
+    RES_OUTPUT_FOLDER = os.path.join(PROJECT_FOLDER,"..","res")
+    
     args = get_args()
 
     spades = {"ref_seq":'ggacatcagata',
               "reads":["acat", "catc", "atca", "tcag", "caga", "agat", "gata", "tagg", "ggac"]}
-    multik = {"ref_seq":"aaaatcgatctcatcgaatt",
-              "reads":["aaaatcgatctc","tctcatcgaatt"]}
+    multik = {"ref_seq":"aaaaatcgatctcatcgaatt",
+              "reads":["aaaaatcgatctc","tctcatcgaatt"]}
+    
     
     kwargs = {}
     match args.exp:
@@ -66,6 +71,8 @@ if __name__ == '__main__':
             axs[i,0].set_title("DB graph (kmin={}, kmax={})".format(kmin,kmax), fontweight="bold")
             plot_compacted_debruijn_graph_gt(c_g, unitigs, os.path.join(RES_OUTPUT_FOLDER, args.exp+"compacted_graph.png"), ref_seq=ref_seq, axext=axs[i,1])
             axs[i,1].set_title("Compacted DB graph (kmin={}, kmax={})".format(kmin,kmax), fontweight="bold")
+            g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_{}_k_{}_{}.graphml".format(args.exp,kmin,kmax)))
+            c_g.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}_k_{}_{}.graphml".format(args.exp,kmin,kmax)))
         fig.tight_layout()
         plt.axis("off")
         fig.savefig(os.path.join(RES_OUTPUT_FOLDER, args.exp+"_full.png"))

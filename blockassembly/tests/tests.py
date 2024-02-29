@@ -1,16 +1,22 @@
 from unittest import TestCase
 import unittest
 
-from  graph import graph_multi_k
+from  blockassembly.graph.graph import graph_multi_k
 
 import numpy as np
+
 
 spades = {"ref_seq":'ggacatcagata',
           "reads":["acat", "catc", "atca", "tcag", "caga", "agat", "gata", "tagg", "ggac"]}
 multik = {"ref_seq":"aaaatcgatctcatcgaatt",
           "reads":["aaaatcgatctc","tctcatcgaatt"]}
     
-param_list = [(["exp_spades",{"ref_seq":spades["ref_seq"], "reads":spades["reads"], "shuffle":True}, [3,4,3], [3,4,4]],
+param_list = [
+            (["exp_mini",{"ref_seq":"ctata", "reads":["ctat","tata"], "shuffle":False}, [4], [4]],
+              [[[],
+                ['ctata'],
+                []]]),
+            (["exp_spades",{"ref_seq":spades["ref_seq"], "reads":spades["reads"], "shuffle":True}, [3,4,3], [3,4,4]],
               [[[(0, 1), (0, 9), (1, 2), (1, 11), (2, 3), (2, 7), (3, 4), (3, 5), (4, 10), (5, 0), (6, 3), (6, 7), (7, 8), (8, 1), (8, 9), (9, 4), (9, 5), (10, 2), (10, 11), (11, 6)],
                 ['atca', 'cag', 'aga', 'gat', 'atag', 'agga', 'gaca', 'cat'],
                 [(0, 1), (0, 7), (1, 2), (1, 5), (2, 3), (2, 6), (3, 0), (3, 4), (4, 2), (4, 5), (5, 3), (5, 6), (6, 1), (6, 7), (7, 0), (7, 4)]],
