@@ -26,12 +26,15 @@ def check_args(verbose=False,ref_seq = None, alphabet = None, ref_length = None,
     if ref_seq is None:
         if (alphabet is None or ref_length is None):
             raise ValueError("Empty reference sequence requires alphabet and ref_length")
+        alphabet = [("a","t"),("c","g")]
         ref_seq = create_ref(ref_length,alphabet)
         if verbose:
             print("Generate ref_seq with {} characters: ".format(ref_length), end="")
     else:
         ref_length = len(ref_seq)
-        alphabet = [("a","t"),("c","g")]
+        if alphabet is None:
+            letters = set([l for l in ref_seq])
+            alphabet = [(l,chr(65+ord(l)-97)) for l in letters]
         if verbose:
             print("Reference sequence as input:",end="")
     if verbose:
@@ -39,6 +42,7 @@ def check_args(verbose=False,ref_seq = None, alphabet = None, ref_length = None,
             print(ref_seq[:10],"...",ref_seq[-10:],sep="")
         else:
             print(ref_seq)
+        print("Used alphabet: ",alphabet)
 
     # Create bi_alphabet
     bi_alphabet = (alphabet,{k:((i+1)*((-1)**j)) for i, ks in enumerate(alphabet) for j, k in enumerate(ks)})
@@ -142,20 +146,11 @@ def num2seq(num, bi_alphabet):
     # print(bi_alphabet)
     # print(num)
     # print([(abs(n)-1,(-np.sign(n)+1)//2) for n in num])
-    seq = "".join(np.array([bi_alphabet[0][abs(n)-1][(-np.sign(n)+1)//2] for n in num]))
+    sep = "~~~" if len(bi_alphabet[0][0])>1 else ""
+        
+    # seq = sep.join(np.array([bi_alphabet[0][abs(n)-1][(-np.sign(n)+1)//2] for n in num]))
+    seq = [bi_alphabet[0][abs(n)-1][(-np.sign(n)+1)//2] for n in num]
     return seq
-
-# def numseq2str(ns, n_max):
-#     b = int(np.ceil(np.log10(n_max)))+1
-#     s = ""
-#     for c in ns:
-#         s= s + ('{:'+str(b)+'d}').format(c)
-#     return s
-
-# def str2numseq(s, n_max):
-#     dtype = np.int8 if n_max<256 else np.int16
-#     b = int(np.ceil(np.log10(n_max)))+1
-#     return np.array([int(s[k*b:(k+1)*b]) for k in range(len(s)//b)], dtype = dtype)
 
 def numseq2bytes(ns , n_b=2):
     # print("nb numseq2b ", ns, n_b)
