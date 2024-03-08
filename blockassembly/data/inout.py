@@ -1,5 +1,5 @@
 import gfapy
-
+import csv
 
 
 
@@ -8,12 +8,16 @@ import gfapy
 
 ## EXPORT
 
-def create_gfa(g,k):
+def create_gfa_csv(output_file, g,k,vp=["id"],ep=[]):
     gfa = gfapy.Gfa(vlevel=0)
-    for v in g.vertices():
-        gfa.add_line("S\t{}\t{}\tLN:i:{}".format(g.vp["seq_dot"][v],"*",g.vp["len"][v]))
-        # gfa.add_line("S\t{}\t{}\tLN:i:{}".format(g.vp["seq_dot"][v],"a"*g.vp["len"][v],g.vp["len"][v]))
-        # gfa.add_line("S\t{}\t{}\tLN:i:{}".format(int(v),"a"*g.vp["len"][v],g.vp["len"][v]))
+    with open(output_file.format(".csv"), 'w', newline='') as csvfile:
+        csvwriter = csv.writer(csvfile)
+        csvwriter.writerow(["Name"]+vp)
+        for v in g.vertices():
+            gfa.add_line("S\t{}\t{}\tLN:i:{}\tid:i:{}".format(g.vp["seq_dot"][v],"*",g.vp["len"][v],g.vp["id"][v]))
+            # gfa.add_line("S\t{}\t{}\tLN:i:{}".format(g.vp["seq_dot"][v],"a"*g.vp["len"][v],g.vp["len"][v]))
+            # gfa.add_line("S\t{}\t{}\tLN:i:{}".format(int(v),"a"*g.vp["len"][v],g.vp["len"][v]))
+            csvwriter.writerow([g.vp["seq_dot"][v],*[g.vp[vpp][v] for vpp in vp]])
     for e in g.edges():
         r = g.ep["edge_type"][e]
         vs,vt = e.source(), e.target()
@@ -29,5 +33,5 @@ def create_gfa(g,k):
                 gfa.add_line("L\t{}\t{}\t{}\t{}\t{}M".format(s,"+",t,"-",k))
             case -2:
                 gfa.add_line("L\t{}\t{}\t{}\t{}\t{}M".format(s,"-",t,"+",k))
-    return gfa
+    gfa.to_file(output_file.format(".gfa"))
         

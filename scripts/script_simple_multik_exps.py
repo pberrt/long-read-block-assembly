@@ -1,9 +1,10 @@
 # script_graph_multi_k.py
 
 import sys
+import argparse
+
 sys.path.append('..')
 
-from  blockassembly.common.utils import get_args
 from  blockassembly.graph.graph import graph_multi_k
 from blockassembly.data.visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
 from blockassembly.data.inout import create_gfa
@@ -12,7 +13,13 @@ import os
 
 import matplotlib.pyplot as plt
 
-
+def get_args():
+    parser = argparse.ArgumentParser(
+                    prog='DBG multi-k',
+                    description='')
+    parser.add_argument('exp')
+    args = parser.parse_args()
+    return args
 
 if __name__ == '__main__':
     

@@ -5,47 +5,74 @@ import sys
 from time import time
 
 import json
+import argparse
 
 import matplotlib.pyplot as plt
 import numpy as np
+import csv
 
 import gfapy
+import paired
 
 sys.path.append('..')
 
 from blockassembly.common.utils import bytes2numseq, numseq2bytes, seq2num, num2seq
-from blockassembly.graph.graph import graph_multi_k
+from blockassembly.graph.graph import graph_multi_k, dbg_tip_clipping
 from blockassembly.graph.graph import get_kmer_count_from_sequences, get_debruijn_edges_from_kmers, get_unitigs_from_dbg, get_compacted_dbg_edges_from_unitigs, get_gt_graph, create_dbg_from_edges
 from blockassembly.data.visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
-from blockassembly.data.inout import create_gfa
+from blockassembly.data.inout import create_gfa_csv
+
+def get_args():
+    parser = argparse.ArgumentParser(
+                    prog='DBG multi-k',
+                    description='')
+    parser.add_argument('exp')
+    parser.add_argument('--kmin',type=int,default=3)
+    parser.add_argument('--kmax', type=int, default=None)
+    parser.add_argument('--clipping', action="store_true")
+    args = parser.parse_args()
+    if args.kmax == None:
+        args.kmax = args.kmin
+    return args
 
 if __name__ == '__main__':
     
+    args = get_args()
+
     PROJECT_FOLDER = os.getcwd()
-    RES_OUTPUT_FOLDER = os.path.join(PROJECT_FOLDER,"..","res","ecoli")
-    
-    
+    RES_OUTPUT_FOLDER = os.path.join(PROJECT_FOLDER,"..","res","ecoli","{}_data".format(args.exp))
+    if not os.path.isdir(RES_OUTPUT_FOLDER):
+        os.mkdir(RES_OUTPUT_FOLDER)
+
     sys. setrecursionlimit(10000)
-    
+
     ref_file = "../input/truth_data/GCA_027944875.1_ASM2794487v1_genomic.truth_genes.json"
     with open(ref_file, 'r') as f:
         ref_data = json.load(f)
     
-    read_file = "../input/truth_data/SRR23044204_1.subset.truth_genes.json"
-    # read_file = "input/real_data/SRR23044204_1.subset.pandora_block_calls.json"
+    match args.exp:
+        case "truth":
+            read_file = "../input/truth_data/SRR23044204_1.subset.truth_genes.json"
+        case "simulated":
+            read_file = "../input/simulated_data/SRR23044204_1.subset.simulated_gene_dropout.json"
+        case "real":
+            read_file = "../input/real_data/SRR23044204_1.subset.pandora_gene_calls.json"
+    
     with open(read_file, 'r') as f:
         read_data = json.load(f)
 
-    blocks = set()
-    for k,g in ref_data.items():
-        for block in g:
-            blocks.add(block[1:])
+    blocks = {}
     for k,g in read_data.items():
         for block in g:
-            blocks.add(block[1:])
-
+            blocks[block[1:]]=None
+    for k,g in ref_data.items():
+        for block in g:
+            blocks[block[1:]]=None
+    blocks = list(blocks.keys())
     # blocks = dict([(p1,p2+1) for p1,p2 in zip(list(blocks), list(range(len(blocks))))])
     alphabet = [("+"+p1,"-"+p1) for p1 in list(blocks)]
+    alphabet.sort()
+    print(alphabet[:10])
     bi_alphabet = (alphabet,{k:((i+1)*((-1)**j)) for i, ks in enumerate(alphabet) for j, k in enumerate(ks)})
 
     ref_seqs = [seq2num(seq,bi_alphabet) for seq in ref_data.values()]
@@ -55,7 +82,10 @@ if __name__ == '__main__':
     #         a[i]=np.array(int(str(block[0])+str(blocks[block[1:]]))).astype(a.dtype)
     #     ref_seqs.append(a)
     
-    read_data_trimmed = [["_".join(block.split("_")[:-1]) for block in seq] for seq in read_data.values()]
+    if args.exp != "real":
+        read_data_trimmed = [["_".join(block.split("_")[:-1]) for block in seq] for seq in read_data.values()]  
+    else:
+        read_data_trimmed = read_data.values()
     read_seqs = [seq2num(seq,bi_alphabet) for seq in read_data_trimmed]
     # seqs = []
     # for k,g in read_data.items():
@@ -112,18 +142,24 @@ if __name__ == '__main__':
             n_b = 2
 
     subseq = read_seqs[:]
-    kmin, kmax = 11,11
+    kmin, kmax = args.kmin, args.kmax
     unitigs = []
     prev_unitigs = []
 
     res = []
 
+    filtered = True
+
     for k in range(kmin, kmax+1):
         t1 = time()
-        sequences = subseq+unitigs
+        sequences = subseq+[u[0] for u in unitigs]
         kmers = get_kmer_count_from_sequences(sequences, k=k, n_b=n_b, cyclic=False)
         edges  = get_debruijn_edges_from_kmers(kmers, n_b=n_b)
         dbg = create_dbg_from_edges(edges, kmers)
+
+        if filtered:
+            dbg = dbg_tip_clipping(dbg,k,50)
+
         unitigs = get_unitigs_from_dbg(dbg, kmers, n_b=n_b)
         c_edges = get_compacted_dbg_edges_from_unitigs(unitigs,k, n_b=n_b)
 
@@ -142,11 +178,52 @@ if __name__ == '__main__':
                     # print("not found",u)
                     prev_unitigs.append(u)
         
-        
-        unitigs_readable = [(num2seq(bytes2numseq(u[0],n_b),bi_alphabet), num2seq(bytes2numseq(u[1],n_b), bi_alphabet)) for u in unitigs]
-        unitigs = [u[0] for u in unitigs]
 
+        unitigs = [(bytes2numseq(u[0],n_b), bytes2numseq(u[1],n_b)) for u in unitigs]
+
+        gap_score = -5
+        match_score = 1
+        mismatch_score = -1
+
+        u_ref = []
+        for both_u in unitigs:
+            u_ref_scores = []
+            for seq in ref_seqs:
+                u_ref_scores.append([])
+                for u in both_u:
+                    # r = paired.align(seq,u, match_score=match_score, mismatch_score=mismatch_score, gap_score=gap_score)
+                    # s = 0
+                    # i_start = None
+                    # i_end = None
+                    # for i,(r1,r2) in enumerate(r):
+                    #     if (r1!=None and r2!= None) or i_start is not None:
+                    #         # print(i)
+                    #         if i_start is None:
+                    #             # print("step{}".format(1))
+                    #             i_start=i
+                    #         if r1 is None or r2 is None:
+                    #             # print("step{}".format(2))
+                    #             s+=gap_score
+                    #         else:
+                    #             i_end=i
+                    #             if seq[r1]==u[r2]:
+                    #                 # print("step{}".format(3))
+                    #                 s+=match_score
+                    #             else:
+                    #                 # print("step{}".format(4))
+                    #                 s+= mismatch_score
+                    #         # print(i_end, matching_string)
+                    # s -= (len(r)-i_end-1)*gap_score
+                    s = len(set(seq).intersection(set(u)))
+                    u_ref_scores[-1].append(s)
+            u_ref_scores = [max(urs) for urs in u_ref_scores]    
+            u_ref.append(np.argmax(u_ref_scores))
+
+
+        unitigs_readable = [(num2seq(u[0],bi_alphabet), num2seq(u[1], bi_alphabet)) for u in unitigs]
         c_g = get_gt_graph(c_edges, unitigs_readable)
+        c_g.vp["ref"] = c_g.new_vp("int", vals=u_ref)
+
         g = get_gt_graph(edges, [(num2seq(bytes2numseq(kmer[0],n_b),bi_alphabet), num2seq(bytes2numseq(kmer[1],n_b),bi_alphabet)) for kmer in kmers])
 
                 
@@ -159,11 +236,12 @@ if __name__ == '__main__':
         print("Step k = {:{}} processed in {:0=2.0f}:{:0=2.0f}:{:0=2.2f}, there are {} kmers and {} unitigs with {} unitigs selected" .format(k,len(str(kmax+1)),h,m,s,len(kmers),len(unitigs),len(prev_unitigs)))
     prev_unitigs = [bytes2numseq(u[0],n_b) for u in prev_unitigs]
 
-
+    if filtered:
+        exp = "filtered_"
+    else:
+        exp = ""
     for k, (g,c_g) in zip(range(kmin, kmax+1),res):
-        g.save(os.path.join(RES_OUTPUT_FOLDER,"graphtest_revcomp_k_{}_{}.graphml".format(kmin,k)))
-        c_g.save(os.path.join(RES_OUTPUT_FOLDER,"c_graphtest_revcomp_k_{}_{}.graphml".format(kmin,k)))
-        gfa_g = create_gfa(g,k)    
-        gfa_g.to_file(os.path.join(RES_OUTPUT_FOLDER,"graphtest_k_{}_{}.gfa".format(kmin,k)))
-        gfa_c_g = create_gfa(c_g,k)    
-        gfa_c_g.to_file(os.path.join(RES_OUTPUT_FOLDER,"c_graphtest_k_{}_{}.gfa".format(kmin,k)))
+        g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}.graphml".format(exp,kmin,k)))
+        c_g.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}.graphml".format(exp,kmin,k)))
+        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}{{}}".format(exp,kmin,k)),g,k)
+        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}{{}}".format(exp,kmin,k)),c_g,k, vp = ["id","ref"])    

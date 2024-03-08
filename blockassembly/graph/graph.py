@@ -130,7 +130,7 @@ def switch_index(i, mode):
     return 2*(i//2)+(mode==-1)+i%2*mode
 
 def expand_unitigs(unitigs,dbg, kmers, node, mode, n_b=2, start=True):
-    print("expand",node,mode)
+    # print("expand",node,mode)
     if not start:
         if dbg[node][switch_index(2,mode)]>1 or dbg[node][switch_index(4,mode)]!=0:
             return unitigs,dbg
@@ -145,7 +145,7 @@ def expand_unitigs(unitigs,dbg, kmers, node, mode, n_b=2, start=True):
         return unitigs,dbg
 
 def retrieve_unitigs(unitigs, dbg, kmers, node, mode, n_b=2, root=None):
-    print("retrieve",node,mode)
+    # print("retrieve",node,mode)
     if dbg[node][switch_index(4,mode)]!=0:
         return unitigs, dbg
     if dbg[node][switch_index(2,mode)]==1:
@@ -172,11 +172,12 @@ def get_unitigs_from_dbg(dbg, kmers, n_b=2):
     for node in dbg:
         unitigs, dbg = retrieve_unitigs(unitigs,dbg,kmers, node, 1, n_b=n_b)
     # Add reverse complement of each unitig and sort to have the canonical in first
-    for k, unitig in enumerate(unitigs):
+        unitigs_set = set()
+    for unitig in unitigs:
         bunitig_r = numseq2bytes(rev_comp(bytes2numseq(unitig,n_b)),n_b=n_b)
         bunitig_min, bunitig_max = min(unitig, bunitig_r), max(unitig, bunitig_r)
-        unitigs[k]=(bunitig_min,bunitig_max)
-    return unitigs
+        unitigs_set.add((bunitig_min,bunitig_max))
+    return list(unitigs_set)
 
 def get_compacted_dbg_edges_from_unitigs(unitigs, k,n_b=2):
     # c_edges = [(i1,i2) for i2, u2 in enumerate(unitigs) for i1,u1 in enumerate(unitigs) if len(u1)>=(k*n_b) and len(u2)>=(k*n_b) and u1[-n_b*(k-1):]==u2[:n_b*(k-1)]]
@@ -184,14 +185,12 @@ def get_compacted_dbg_edges_from_unitigs(unitigs, k,n_b=2):
     for i1,u1 in enumerate(unitigs):
         for i2, u2 in enumerate(unitigs):
             if i2>=i1 and len(u1[0])>=(k*n_b) and len(u2[0])>=(k*n_b):
-                # having both edges of type 1 and 2 is equivalent to k2=rev_comp(k2) so only keep one edge (only possible for even values of k)
                 if u1[0][-n_b*(k-1):]==u2[0][:n_b*(k-1)]:
                     # print(1)
                     add_to_edges(c_edges,(i1,i2),1) 
                 if u1[0][-n_b*(k-1):]==u2[1][:n_b*(k-1)]:
                     # print(2)
                     add_to_edges(c_edges,(i1,i2),2)
-                # having both edges of type -1 and -2 is equivalent to k2=rev_comp(k2) so only keep one edge (only possible for even values of k)
                 if u1[1][-n_b*(k-1):]==u2[1][:n_b*(k-1)] and i1!=i2: # for self edges, 1 is equivalent to -1
                     # print(-1)
                     add_to_edges(c_edges,(i1,i2),-1) 
@@ -200,18 +199,11 @@ def get_compacted_dbg_edges_from_unitigs(unitigs, k,n_b=2):
                     add_to_edges(c_edges,(i1,i2),-2) 
     
     d_edges = c_edges.copy()
-    c_edges=[]
-    for i1,i2 in d_edges:
-        es = d_edges[(i1,i2)]
-        has1 = False
-        for r in [-1,1]:
-            if r in es:
-                c_edges.append((i1,i2,r))
-                has1 = True
-        for r in [-2,2]:
-            if r in es and not has1:
-                c_edges.append((i1,i2,r))
-    return c_edges
+    c_edges=set()
+    for e in d_edges:
+        for r in d_edges[e]:
+            c_edges.add((i1,i2,r))
+    return list(c_edges)
 
 
 def get_gt_graph(edges,sequences):
@@ -246,7 +238,7 @@ def get_gt_graph(edges,sequences):
     vname=g.new_vp("int",vals= [int(i) for i in g.vertices()])
     g.vp["len"] = vlen
     vseq=g.new_vp("string", vals=[str(s[0]) for s in sequences])
-    print(len(sequences[0][0][0]),sequences[0][0][0])
+    # print(len(sequences[0][0][0]),sequences[0][0][0])
     sep = "~~~" if len(sequences[0][0][0])>1 else ""
     vseq_dot=g.new_vp("string", vals=[sep.join(s[0]) for s in sequences])
     vrevcomp=g.new_vp("string", vals=[str(s[1]) for s in sequences])
@@ -301,3 +293,17 @@ def graph_multi_k(verbose=True, **kwargs):
         print("\t", ref_seq)
         print("\t", unitigs)
     return ref_seq, reads, kmers, g, unitigs, c_g
+
+
+def dbg_tip_clipping(dbg, k, tip_length):
+    for node in dbg:
+        for mode in [-1,1]:
+            if dbg[switch_index(2,mode)]==0:
+                dbg = clip_node(dbg, node, mode, tip_length-k)
+    return dbg
+
+def clip_node(dbg, node, mode, l):
+    if l<0 or dbg[node][switch_index(3,mode)]:
+        return dbg
+    if dbg[switch_index(2)]==0:
+        pass
