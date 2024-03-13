@@ -70,31 +70,27 @@ def get_debruijn_edges_from_kmers(kmers, n_b=2):
     edges = {}
     for i1,k1 in enumerate(kmers):
         for i2, k2 in enumerate(kmers):
-            if i2>=i1:
+            if i2>=i1:    
+                # having both edges of type 1/-1 and 2/-2 is equivalent to k2=rev_comp(k2) or k1=rev_comp(k1)
+                # so only keep the edge e with abs(e) = 1
+                # Note : this is only possible for even values of k
+                has1 = False
                 if k1[0][n_b:]==k2[0][:-n_b]:
+                    has1 = True
                     add_to_edges(edges,(i1,i2),1) 
                 # if self-edge 1 is equivalent to -1
                 if k1[1][n_b:]==k2[1][:-n_b] and i1!=i2:
+                    has1 = True
                     add_to_edges(edges,(i1,i2),-1)
-                if k1[0][n_b:]==k2[1][:-n_b]:
+                if k1[0][n_b:]==k2[1][:-n_b] and not has1:
                     add_to_edges(edges,(i1,i2),2)
-                if k1[1][n_b:]==k2[0][:-n_b]:
+                if k1[1][n_b:]==k2[0][:-n_b] and not has1:
                     add_to_edges(edges,(i1,i2),-2)
-    # having both edges of type 1/-1 and 2/-2 is equivalent to k2=rev_comp(k2) or k1=rev_comp(k1)
-    # so only keep the edge e with abs(e) = 1
-    # Note : this is only possible for even values of k
     d_edges = edges.copy()
     edges=[]
     for i1,i2 in d_edges:
-        es = d_edges[(i1,i2)]
-        has1 = False
-        for r in [-1,1]:
-            if r in es:
-                edges.append((i1,i2,r))
-                has1 = True
-        for r in [-2,2]:
-            if r in es and not has1:
-                edges.append((i1,i2,r))
+        for r in d_edges[(i1,i2)]:
+            edges.append((i1,i2,r))
     return edges
 
 def create_dbg_from_edges(edges,kmers):
@@ -159,6 +155,7 @@ def retrieve_unitigs(unitigs, dbg, kmers, node, mode, n_b=2, root=None):
                 return retrieve_unitigs(unitigs, dbg, kmers, next_node, next_mode, n_b=n_b, root=root)
     unitigs.append(kmers[node][switch_index(0,mode)])
     dbg[node][switch_index(4,mode)]=1
+    # dbg[node][switch_index(4,mode*-1)]=1
     return expand_unitigs(unitigs, dbg, kmers, node, mode, n_b=n_b)
 
 
@@ -171,6 +168,7 @@ def get_unitigs_from_dbg(dbg, kmers, n_b=2):
     unitigs = []
     for node in dbg:
         unitigs, dbg = retrieve_unitigs(unitigs,dbg,kmers, node, 1, n_b=n_b)
+        unitigs, dbg = retrieve_unitigs(unitigs,dbg,kmers, node, -1, n_b=n_b)
     # Add reverse complement of each unitig and sort to have the canonical in first
         unitigs_set = set()
     for unitig in unitigs:
@@ -185,16 +183,17 @@ def get_compacted_dbg_edges_from_unitigs(unitigs, k,n_b=2):
     for i1,u1 in enumerate(unitigs):
         for i2, u2 in enumerate(unitigs):
             if i2>=i1 and len(u1[0])>=(k*n_b) and len(u2[0])>=(k*n_b):
+                isequal = ( u1[0]==u1[1] or u2[0]==u2[1] )
                 if u1[0][-n_b*(k-1):]==u2[0][:n_b*(k-1)]:
                     # print(1)
                     add_to_edges(c_edges,(i1,i2),1) 
-                if u1[0][-n_b*(k-1):]==u2[1][:n_b*(k-1)]:
-                    # print(2)
-                    add_to_edges(c_edges,(i1,i2),2)
                 if u1[1][-n_b*(k-1):]==u2[1][:n_b*(k-1)] and i1!=i2: # for self edges, 1 is equivalent to -1
                     # print(-1)
-                    add_to_edges(c_edges,(i1,i2),-1) 
-                if u1[1][-n_b*(k-1):]==u2[0][:n_b*(k-1)]:
+                    add_to_edges(c_edges,(i1,i2),-1)
+                if u1[0][-n_b*(k-1):]==u2[1][:n_b*(k-1)] and not isequal:
+                    # print(2)
+                    add_to_edges(c_edges,(i1,i2),2) 
+                if u1[1][-n_b*(k-1):]==u2[0][:n_b*(k-1)] and not isequal:
                     # print(-2)
                     add_to_edges(c_edges,(i1,i2),-2) 
     
@@ -202,7 +201,7 @@ def get_compacted_dbg_edges_from_unitigs(unitigs, k,n_b=2):
     c_edges=set()
     for e in d_edges:
         for r in d_edges[e]:
-            c_edges.add((i1,i2,r))
+            c_edges.add((*e,r))
     return list(c_edges)
 
 
@@ -268,11 +267,15 @@ def graph_multi_k(verbose=True, **kwargs):
         print([(num2seq(bytes2numseq(seq[0],n_b), bi_alphabet),num2seq(bytes2numseq(seq[1],n_b), bi_alphabet)) for seq in kmers])
         edges = get_debruijn_edges_from_kmers(kmers, n_b=n_b)
         dbg = create_dbg_from_edges(edges, kmers)
+        print(dbg)
+        dbg = dbg_tip_clipping(dbg,k,5)
+        print(dbg)
         # print(edges)
         # for k in dbg:
         #     print(k,dbg[k][0],dbg[k][1])
         unitigs = get_unitigs_from_dbg(dbg, kmers, n_b=n_b)
         c_edges = get_compacted_dbg_edges_from_unitigs(unitigs,k,n_b=n_b)
+        print(c_edges)
         unitigs = [(bytes2numseq(u[0],n_b),bytes2numseq(u[1],n_b)) for u in unitigs]
         if verbose:
             print("k={} unitigs: ".format(k), [num2seq(u[0], bi_alphabet) for u in unitigs])
@@ -295,15 +298,36 @@ def graph_multi_k(verbose=True, **kwargs):
     return ref_seq, reads, kmers, g, unitigs, c_g
 
 
-def dbg_tip_clipping(dbg, k, tip_length):
-    for node in dbg:
-        for mode in [-1,1]:
-            if dbg[switch_index(2,mode)]==0:
-                dbg = clip_node(dbg, node, mode, tip_length-k)
+def dbg_tip_clipping(dbg, k, tip_length, n_rounds = 1):
+    for _ in range(n_rounds):
+        for node in dbg:
+            for mode in [-1,1]:
+                # print("clipping" ,node,mode,dbg[node][switch_index(2,mode)])
+                if dbg[node][switch_index(2,mode)]==0:
+                    verbose = False
+                    dbg, _ = clip_node(dbg, node, mode, tip_length+k,verbose)
     return dbg
 
-def clip_node(dbg, node, mode, l):
-    if l<0 or dbg[node][switch_index(3,mode)]:
-        return dbg
-    if dbg[switch_index(2)]==0:
-        pass
+def clip_node(dbg, node, mode, l,verbose):
+    if l<0 or (dbg[node][switch_index(3,mode)]!=1 and dbg[node][switch_index(2,mode)]<=1):
+        if verbose:
+            print("clipping", node,mode,l, "type 1")
+        return dbg, False
+    if dbg[node][switch_index(2,mode)]>1:
+        if verbose:
+            print("clipping", node,mode,l, "type 2")
+        return dbg, True
+    else:
+        if verbose:
+            print("clipping", node,mode,l, "type 3")
+        next_node, edge_mode = dbg[node][switch_index(1,mode)][0]
+        next_mode = mode*edge_mode
+        dbg, cut = clip_node(dbg, next_node, next_mode, l-1,verbose)
+        if cut :
+            dbg[node][switch_index(1,mode)].remove((next_node,edge_mode))
+            dbg[node][switch_index(3,mode)]-=1
+            # if self edges to reverse complement, there is only one edge that was already removed in previous step
+            if node!=next_node or edge_mode!=-1:
+                dbg[next_node][switch_index(0,next_mode)].remove((node, edge_mode))
+                dbg[next_node][switch_index(2,next_mode)]-=1
+        return dbg, False 

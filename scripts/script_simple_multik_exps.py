@@ -7,7 +7,7 @@ sys.path.append('..')
 
 from  blockassembly.graph.graph import graph_multi_k
 from blockassembly.data.visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
-from blockassembly.data.inout import create_gfa
+from blockassembly.data.inout import create_gfa_csv
 
 import os
 
@@ -36,9 +36,16 @@ if __name__ == '__main__':
         "ref_seq":"cactatagtt",
         "reads":["cac","aac", "act", "cta", "ata"]
     }
+    clipping = {
+        "ref_seq":"abcdefg",
+        "reads":["abcd","bcde","cdef","defg","cdeh"]
+    }
     
     kwargs = {}
     match args.exp:
+        case "exp_clipping":
+            kwargs = {"ref_seq":clipping["ref_seq"], "reads":clipping["reads"], "shuffle":True}
+            kmins, kmaxs = [4], [4]
         case "exp_artifacts":
             kwargs = {"ref_seq":artifacts["ref_seq"],"alphabet": [("a","t"),("c","g")], "reads":artifacts["reads"], "shuffle":True}
             kmins, kmaxs = [3], [3]
@@ -93,10 +100,8 @@ if __name__ == '__main__':
             axs[i,1].set_title("Compacted DB graph (kmin={}, kmax={})".format(kmin,kmax), fontweight="bold")
             g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_{}_k_{}_{}.graphml".format(args.exp,kmin,kmax)))
             c_g.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}_k_{}_{}.graphml".format(args.exp,kmin,kmax)))
-            gfa_g = create_gfa(g,kmax)    
-            gfa_g.to_file(os.path.join(RES_OUTPUT_FOLDER,"graph_{}_k_{}_{}.gfa".format(args.exp,kmin,kmax)))
-            gfa_c_g = create_gfa(c_g,kmax)    
-            gfa_c_g.to_file(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}_k_{}_{}.gfa".format(args.exp,kmin,kmax)))
+            gfa_g = create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_{}_k_{}_{}{{}}".format(args.exp,kmin,kmax)),g,kmax)    
+            gfa_c_g = create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}_k_{}_{}{{}}".format(args.exp,kmin,kmax)),c_g,kmax)    
         fig.tight_layout()
         plt.axis("off")
         fig.savefig(os.path.join(RES_OUTPUT_FOLDER, args.exp+"_full.png"))

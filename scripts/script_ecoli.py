@@ -148,7 +148,6 @@ if __name__ == '__main__':
 
     res = []
 
-    filtered = True
 
     for k in range(kmin, kmax+1):
         t1 = time()
@@ -157,8 +156,8 @@ if __name__ == '__main__':
         edges  = get_debruijn_edges_from_kmers(kmers, n_b=n_b)
         dbg = create_dbg_from_edges(edges, kmers)
 
-        if filtered:
-            dbg = dbg_tip_clipping(dbg,k,50)
+        if args.clipping:
+            dbg = dbg_tip_clipping(dbg,k,50,3)
 
         unitigs = get_unitigs_from_dbg(dbg, kmers, n_b=n_b)
         c_edges = get_compacted_dbg_edges_from_unitigs(unitigs,k, n_b=n_b)
@@ -216,13 +215,32 @@ if __name__ == '__main__':
                     # s -= (len(r)-i_end-1)*gap_score
                     s = len(set(seq).intersection(set(u)))
                     u_ref_scores[-1].append(s)
-            u_ref_scores = [max(urs) for urs in u_ref_scores]    
-            u_ref.append(np.argmax(u_ref_scores))
+                
+            u_ref_scores = [(max(urs),i) for i, urs in enumerate(u_ref_scores)]
+            u_ref_scores.sort()
+            # print(u_ref_scores)
+            ref_string_tuples = []
+            for s,i in u_ref_scores[::-1]:
+                if s>0:
+                    # and s>u_ref_scores[-1][0]/2:
+                    ref_string_tuples.append((i,s))
+            # ref_string_tuples.sort()
+            if len(ref_string_tuples)==0:
+                ref_string = "?"
+            elif len(ref_string_tuples)==1:
+                ref_string = str(ref_string_tuples[0][0])
+            else:
+                ref_string = ""
+                for i,s in  ref_string_tuples:
+                    ref_string+="{}({}) | ".format(i,s)
+                ref_string=ref_string[0:-3]
+            # print(ref_string)
+            u_ref.append(ref_string)
 
 
         unitigs_readable = [(num2seq(u[0],bi_alphabet), num2seq(u[1], bi_alphabet)) for u in unitigs]
         c_g = get_gt_graph(c_edges, unitigs_readable)
-        c_g.vp["ref"] = c_g.new_vp("int", vals=u_ref)
+        c_g.vp["ref"] = c_g.new_vp("string", vals=u_ref)
 
         g = get_gt_graph(edges, [(num2seq(bytes2numseq(kmer[0],n_b),bi_alphabet), num2seq(bytes2numseq(kmer[1],n_b),bi_alphabet)) for kmer in kmers])
 
@@ -236,8 +254,8 @@ if __name__ == '__main__':
         print("Step k = {:{}} processed in {:0=2.0f}:{:0=2.0f}:{:0=2.2f}, there are {} kmers and {} unitigs with {} unitigs selected" .format(k,len(str(kmax+1)),h,m,s,len(kmers),len(unitigs),len(prev_unitigs)))
     prev_unitigs = [bytes2numseq(u[0],n_b) for u in prev_unitigs]
 
-    if filtered:
-        exp = "filtered_"
+    if args.clipping:
+        exp = "clipped_"
     else:
         exp = ""
     for k, (g,c_g) in zip(range(kmin, kmax+1),res):

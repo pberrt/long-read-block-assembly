@@ -34,6 +34,12 @@ def check_args(verbose=False,ref_seq = None, alphabet = None, ref_length = None,
         ref_length = len(ref_seq)
         if alphabet is None:
             letters = set([l for l in ref_seq])
+            if reads is not None:
+                for r in reads:
+                    letters |= set([l for l in r])
+            letters = list(letters)
+            letters.sort()
+            print(letters)
             alphabet = [(l,chr(65+ord(l)-97)) for l in letters]
         if verbose:
             print("Reference sequence as input:",end="")
