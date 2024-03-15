@@ -26,7 +26,7 @@ def get_args():
     parser = argparse.ArgumentParser(
                     prog='DBG multi-k',
                     description='')
-    parser.add_argument('exp')
+    parser.add_argument('--exp', default=None)
     parser.add_argument('--kmin',type=int,default=3)
     parser.add_argument('--kmax', type=int, default=None)
     parser.add_argument('--clipping', action="store_true")
@@ -49,7 +49,7 @@ if __name__ == '__main__':
     ref_file = "../input/truth_data/GCA_027944875.1_ASM2794487v1_genomic.truth_genes.json"
     with open(ref_file, 'r') as f:
         ref_data = json.load(f)
-    
+    args.exp = "truth"
     match args.exp:
         case "truth":
             read_file = "../input/truth_data/SRR23044204_1.subset.truth_genes.json"

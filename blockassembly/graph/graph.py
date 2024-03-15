@@ -125,8 +125,9 @@ def switch_index(i, mode):
     # e.g if mode=-1, i=2 return 3 and i=3 return 2
     return 2*(i//2)+(mode==-1)+i%2*mode
 
-def expand_unitigs(unitigs,dbg, kmers, node, mode, n_b=2, start=True):
-    # print("expand",node,mode)
+def expand_unitigs(unitigs,dbg, kmers, node, mode, n_b=2, start=True, verbose = False):
+    if verbose:
+        print("expand",node,mode)
     if not start:
         if dbg[node][switch_index(2,mode)]>1 or dbg[node][switch_index(4,mode)]!=0:
             return unitigs,dbg
@@ -136,39 +137,45 @@ def expand_unitigs(unitigs,dbg, kmers, node, mode, n_b=2, start=True):
     if dbg[node][switch_index(3,mode)]==1:
         next_node, edge_mode = dbg[node][switch_index(1,mode)][0]
         next_mode = mode*edge_mode
-        return expand_unitigs(unitigs,dbg, kmers, next_node, next_mode, n_b=n_b, start=False)
+        return expand_unitigs(unitigs,dbg, kmers, next_node, next_mode, n_b=n_b, start=False, verbose=verbose)
     else:
         return unitigs,dbg
 
-def retrieve_unitigs(unitigs, dbg, kmers, node, mode, n_b=2, root=None):
-    # print("retrieve",node,mode)
+def retrieve_unitigs(unitigs, dbg, kmers, node, mode, n_b=2, root=None, verbose = False):
+    if verbose:
+        print("retrieve",node,mode)
     if dbg[node][switch_index(4,mode)]!=0:
         return unitigs, dbg
     if dbg[node][switch_index(2,mode)]==1:
         next_node, edge_mode = dbg[node][switch_index(0,mode)][0]
         next_mode = mode*edge_mode
-        # print(next_node,next_mode)
+        if verbose:
+            print(next_node,next_mode)
         if dbg[next_node][switch_index(3,next_mode)]==1:
             if root is None:
-                return retrieve_unitigs(unitigs, dbg, kmers, next_node, next_mode, n_b=n_b, root=(node,mode))
+                return retrieve_unitigs(unitigs, dbg, kmers, next_node, next_mode, n_b=n_b, root=(node,mode), verbose=verbose)
             elif root is not None and (next_node,next_mode)!=root:
-                return retrieve_unitigs(unitigs, dbg, kmers, next_node, next_mode, n_b=n_b, root=root)
+                return retrieve_unitigs(unitigs, dbg, kmers, next_node, next_mode, n_b=n_b, root=root, verbose=verbose)
     unitigs.append(kmers[node][switch_index(0,mode)])
     dbg[node][switch_index(4,mode)]=1
     # dbg[node][switch_index(4,mode*-1)]=1
-    return expand_unitigs(unitigs, dbg, kmers, node, mode, n_b=n_b)
+    return expand_unitigs(unitigs, dbg, kmers, node, mode, n_b=n_b, verbose=verbose)
 
 
 
 
-def get_unitigs_from_dbg(dbg, kmers, n_b=2):
+def get_unitigs_from_dbg(dbg, kmers, n_b=2, verbose = False):
     """
     Return unitigs present in the DBG
     """
     unitigs = []
     for node in dbg:
-        unitigs, dbg = retrieve_unitigs(unitigs,dbg,kmers, node, 1, n_b=n_b)
-        unitigs, dbg = retrieve_unitigs(unitigs,dbg,kmers, node, -1, n_b=n_b)
+        verbose = False
+        if (node <3811 and node>3766):
+            verbose = True
+            print("NEW CASE")
+        # unitigs, dbg = retrieve_unitigs(unitigs,dbg,kmers, node, 1, n_b=n_b, verbose = verbose)
+        unitigs, dbg = retrieve_unitigs(unitigs,dbg,kmers, node, -1, n_b=n_b, verbose = verbose)
     # Add reverse complement of each unitig and sort to have the canonical in first
         unitigs_set = set()
     for unitig in unitigs:
