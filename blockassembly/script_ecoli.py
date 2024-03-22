@@ -14,13 +14,11 @@ import csv
 import gfapy
 import paired
 
-sys.path.append('..')
-
-from blockassembly.common.utils import bytes2numseq, numseq2bytes, seq2num, num2seq
-from blockassembly.graph.graph import graph_multi_k, dbg_tip_clipping
-from blockassembly.graph.graph import get_kmer_count_from_sequences, get_debruijn_edges_from_kmers, get_unitigs_from_dbg, get_compacted_dbg_edges_from_unitigs, get_gt_graph, create_dbg_from_edges
-from blockassembly.data.visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
-from blockassembly.data.inout import create_gfa_csv
+from common.utils import bytes2numseq, numseq2bytes, seq2num, num2seq
+from graph.graph import graph_multi_k, dbg_tip_clipping
+from graph.graph import get_kmer_count_from_sequences, get_debruijn_edges_from_kmers, get_unitigs_from_dbg, get_compacted_dbg_edges_from_unitigs, get_gt_graph, create_dbg_from_edges
+from data.visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
+from data.inout import create_gfa_csv
 
 def get_args():
     parser = argparse.ArgumentParser(
@@ -49,7 +47,6 @@ if __name__ == '__main__':
     ref_file = "../input/truth_data/GCA_027944875.1_ASM2794487v1_genomic.truth_genes.json"
     with open(ref_file, 'r') as f:
         ref_data = json.load(f)
-    args.exp = "truth"
     match args.exp:
         case "truth":
             read_file = "../input/truth_data/SRR23044204_1.subset.truth_genes.json"
@@ -69,9 +66,9 @@ if __name__ == '__main__':
         for block in g:
             blocks[block[1:]]=None
     blocks = list(blocks.keys())
+    blocks.sort()
     # blocks = dict([(p1,p2+1) for p1,p2 in zip(list(blocks), list(range(len(blocks))))])
-    alphabet = [("+"+p1,"-"+p1) for p1 in list(blocks)]
-    alphabet.sort()
+    alphabet = [("+"+p1,"-"+p1) for p1 in blocks]
     print(alphabet[:10])
     bi_alphabet = (alphabet,{k:((i+1)*((-1)**j)) for i, ks in enumerate(alphabet) for j, k in enumerate(ks)})
 
@@ -95,7 +92,9 @@ if __name__ == '__main__':
     #     seqs.append(a)
 
     read_length=[len(a) for a in read_seqs]
+    print(sum(read_length),len(read_length))
     plt.hist(read_length,bins=np.arange(0.5,max(read_length)+0.5))
+    plt.savefig(os.path.join(RES_OUTPUT_FOLDER,"read_hist.png"))
 
 
     ref_read_sets = [set(),set()]
@@ -143,15 +142,14 @@ if __name__ == '__main__':
 
     subseq = read_seqs[:]
     kmin, kmax = args.kmin, args.kmax
-    unitigs = []
+    unitigs = {}
     prev_unitigs = []
 
     res = []
 
-
     for k in range(kmin, kmax+1):
         t1 = time()
-        sequences = subseq+[u[0] for u in unitigs]
+        sequences = subseq+[u[0] for u in unitigs.values()]
         kmers = get_kmer_count_from_sequences(sequences, k=k, n_b=n_b, cyclic=False)
         edges  = get_debruijn_edges_from_kmers(kmers, n_b=n_b)
         dbg = create_dbg_from_edges(edges, kmers)
@@ -176,16 +174,15 @@ if __name__ == '__main__':
                 if not foundInEdges:
                     # print("not found",u)
                     prev_unitigs.append(u)
-        
-
-        unitigs = [(bytes2numseq(u[0],n_b), bytes2numseq(u[1],n_b)) for u in unitigs]
+        unitigs = {u[0]:(bytes2numseq(u[0],n_b), bytes2numseq(u[1],n_b),a) for u,a  in unitigs.items()}
 
         gap_score = -5
         match_score = 1
         mismatch_score = -1
 
         u_ref = []
-        for both_u in unitigs:
+        for u_bytes in unitigs:
+            both_u = unitigs[u_bytes][:2]
             u_ref_scores = []
             for seq in ref_seqs:
                 u_ref_scores.append([])
@@ -238,11 +235,11 @@ if __name__ == '__main__':
             u_ref.append(ref_string)
 
 
-        unitigs_readable = [(num2seq(u[0],bi_alphabet), num2seq(u[1], bi_alphabet)) for u in unitigs]
+        unitigs_readable = {u: (num2seq(u0,bi_alphabet), num2seq(u1, bi_alphabet),a) for u, (u0,u1,a) in unitigs.items()}
         c_g = get_gt_graph(c_edges, unitigs_readable)
         c_g.vp["ref"] = c_g.new_vp("string", vals=u_ref)
 
-        g = get_gt_graph(edges, [(num2seq(bytes2numseq(kmer[0],n_b),bi_alphabet), num2seq(bytes2numseq(kmer[1],n_b),bi_alphabet)) for kmer in kmers])
+        g = get_gt_graph(edges, {kmer[0]: (num2seq(bytes2numseq(kmer[0],n_b),bi_alphabet), num2seq(bytes2numseq(kmer[1],n_b),bi_alphabet),a) for kmer,a in kmers.items()})
 
                 
         
@@ -261,5 +258,5 @@ if __name__ == '__main__':
     for k, (g,c_g) in zip(range(kmin, kmax+1),res):
         g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}.graphml".format(exp,kmin,k)))
         c_g.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}.graphml".format(exp,kmin,k)))
-        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}{{}}".format(exp,kmin,k)),g,k)
-        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}{{}}".format(exp,kmin,k)),c_g,k, vp = ["id","ref"])    
+        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}{{}}".format(exp,kmin,k)),g,k, ["id","abundance"])
+        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}{{}}".format(exp,kmin,k)),c_g,k, vp = ["id","ref","abundance"])    

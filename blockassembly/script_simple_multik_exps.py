@@ -17,7 +17,7 @@ def get_args():
     parser = argparse.ArgumentParser(
                     prog='DBG multi-k',
                     description='')
-    parser.add_argument('exp')
+    parser.add_argument('--exp', default = None)
     args = parser.parse_args()
     return args
 
@@ -27,7 +27,7 @@ if __name__ == '__main__':
     RES_OUTPUT_FOLDER = os.path.join(PROJECT_FOLDER,"..","res","simple_multik")
     
     args = get_args()
-
+    args.exp="exp_bcalm"
     spades = {"ref_seq":'ggacatcagata',
               "reads":["acat", "catc", "atca", "tcag", "caga", "agat", "gata", "tagg", "ggac"]}
     multik = {"ref_seq":"aaaaatcgatctcatcgaatt",
@@ -40,14 +40,23 @@ if __name__ == '__main__':
         "ref_seq":"abcdefg",
         "reads":["abcd","bcde","cdef","defg","cdeh"]
     }
-    
+    s = "CCCACGGACGCCAGAACGGGCGTTCTCCCTAGCGTGCGCCCTGCAGAACGTTCGCGAGAACGACAGAACTCACGGACGTTCTCCCTATCGACCGTGCGCAAGAACGTCCGGCCGTACGCCCTATAGAACGAGCGCCCGCTCGGCCGTGCTATAGAACTCTCGGCCTCACGGAAGAACGTTCGTGCGCCAGAACTATCTCACGCCCTAAAGTG"
+    print(len(s))
+    s= s.lower()
     kwargs = {}
     match args.exp:
+        case "exp_bcalm":
+            # kwargs = {"ref_seq":"zabcdecdecdf", "reads":["zabcdecdecdf","yabc"], "shuffle":True}
+            # kwargs = {"ref_seq":"aacgtc","alphabet": [("a","t"),("c","g")], "reads":["aacgtc"], "shuffle":True}
+            # kwargs = {"ref_seq":"aacgtc","alphabet": [("a","A"),("b","B")], "reads":["baAaAa"], "shuffle":True}
+            kwargs = {"ref_seq":"aacgttcgtc", "alphabet": [("a","t"),("c","g")], "reads":[s], "shuffle":True}
+            # kwargs = {"ref_seq":"aacgttcgtc","alphabet": [("a","t"),("c","g")], "reads":["aacgttcgtc"], "shuffle":True}
+            kmins, kmaxs = [9,10,11,12,13], [9,10,11,12,13]
         case "exp_clipping":
             kwargs = {"ref_seq":clipping["ref_seq"], "reads":clipping["reads"], "shuffle":True}
             kmins, kmaxs = [4], [4]
         case "exp_artifacts":
-            kwargs = {"ref_seq":artifacts["ref_seq"],"alphabet": [("a","t"),("c","g")], "reads":artifacts["reads"], "shuffle":True}
+            kwargs = {"ref_seq":artifacts["ref_seq"],"alphabet": [("a","t"),("c","g")], "reads":artifacts["reads"], "shuffle":False}
             kmins, kmaxs = [3], [3]
         case "exp_spades":
             kwargs = {"ref_seq":spades["ref_seq"], "reads":spades["reads"], "shuffle":True}
@@ -105,4 +114,5 @@ if __name__ == '__main__':
         fig.tight_layout()
         plt.axis("off")
         fig.savefig(os.path.join(RES_OUTPUT_FOLDER, args.exp+"_full.png"))
+    print(len(s))
         

@@ -14,8 +14,11 @@ def get_args():
     return args
 
 
-def rev_comp(numseq):
-    return -numseq[::-1]
+def rev_comp(seq, in_bytes = False, out_bytes =False, n_b=None):
+    numseq = bytes2numseq(seq, n_b) if in_bytes else seq
+    rc = -numseq[::-1]
+    seq_out = numseq2bytes(rc, n_b) if out_bytes else rc
+    return seq_out
 
 
 def check_args(verbose=False,ref_seq = None, alphabet = None, ref_length = None, cyclic=False,
