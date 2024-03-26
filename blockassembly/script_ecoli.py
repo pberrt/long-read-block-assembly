@@ -90,7 +90,17 @@ if __name__ == '__main__':
     #     for i,block in enumerate(g):
     #         a[i]=np.array(int(str(block[0])+str(blocks["_".join(block.split("_")[:-1])[1:]]))).astype(a.dtype)
     #     seqs.append(a)
-
+    with open('reads.npy', 'wb') as f:
+        np.save(f,np.array(read_seqs,dtype=object))
+    b= {}
+    for i, (p1,p2) in enumerate(alphabet):
+        b[i+1]= p1
+        b[-(i+1)]=p2
+    j = json.dumps(b)
+    
+    with open('blocks.json', 'w') as f:
+        f.write(j)
+    
     read_length=[len(a) for a in read_seqs]
     print(sum(read_length),len(read_length))
     plt.hist(read_length,bins=np.arange(0.5,max(read_length)+0.5))
