@@ -1,13 +1,13 @@
-# script_graph_multi_k.py
+# script_simple_multi_k_exp.py
 
 import sys
 import argparse
 
 sys.path.append('..')
 
-from  blockassembly.graph.graph import graph_multi_k
-from blockassembly.data.visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
-from blockassembly.data.inout import create_gfa_csv
+from  graph.graph import graph_multi_k
+from data.visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
+from data.inout import create_gfa_csv
 
 import os
 
@@ -49,9 +49,10 @@ if __name__ == '__main__':
             # kwargs = {"ref_seq":"zabcdecdecdf", "reads":["zabcdecdecdf","yabc"], "shuffle":True}
             # kwargs = {"ref_seq":"aacgtc","alphabet": [("a","t"),("c","g")], "reads":["aacgtc"], "shuffle":True}
             # kwargs = {"ref_seq":"aacgtc","alphabet": [("a","A"),("b","B")], "reads":["baAaAa"], "shuffle":True}
-            kwargs = {"ref_seq":"aacgttcgtc", "alphabet": [("a","t"),("c","g")], "reads":[s], "shuffle":True}
+            # kwargs = {"ref_seq":"aacgttcgtc", "alphabet": [("a","t"),("c","g")], "reads":[s], "shuffle":True}
+            # kwargs = {"ref_seq":"bcdAe", "alphabet": [("a","A"),("b","B"),("c","C"),("d","D"),("e","E")], "reads":["bcdAe"], "shuffle":True}
             # kwargs = {"ref_seq":"aacgttcgtc","alphabet": [("a","t"),("c","g")], "reads":["aacgttcgtc"], "shuffle":True}
-            kmins, kmaxs = [9,10,11,12,13], [9,10,11,12,13]
+            kmins, kmaxs = [3], [3]
         case "exp_clipping":
             kwargs = {"ref_seq":clipping["ref_seq"], "reads":clipping["reads"], "shuffle":True}
             kmins, kmaxs = [4], [4]

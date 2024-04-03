@@ -1,4 +1,4 @@
-# script_graph_multi_k.py
+# script_ecoli.py
 
 import os
 import sys
@@ -15,7 +15,7 @@ import gfapy
 import paired
 
 from common.utils import bytes2numseq, numseq2bytes, seq2num, num2seq
-from graph.graph import graph_multi_k, dbg_tip_clipping
+from graph.graph import graph_multi_k, dbg_tip_clipping, get_unitigs_bcalm, Bcalm_kmer, create_edges_from_dbg, add_to_dict
 from graph.graph import get_kmer_count_from_sequences, get_debruijn_edges_from_kmers, get_unitigs_from_dbg, get_compacted_dbg_edges_from_unitigs, get_gt_graph, create_dbg_from_edges
 from data.visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
 from data.inout import create_gfa_csv
@@ -28,6 +28,9 @@ def get_args():
     parser.add_argument('--kmin',type=int,default=3)
     parser.add_argument('--kmax', type=int, default=None)
     parser.add_argument('--clipping', action="store_true")
+    parser.add_argument('--no-multi-k', dest="multi_k", action="store_false")
+    parser.add_argument('--mode', choices = ["normal","bcalm"], default="bcalm")
+    parser.add_argument('--kmer-abundance', choices = ["reads", "median_unitigs", "max_unitigs_reads"], default="max_unitigs_reads")
     args = parser.parse_args()
     if args.kmax == None:
         args.kmax = args.kmin
@@ -37,11 +40,21 @@ if __name__ == '__main__':
     
     args = get_args()
 
+    # args.exp = "test"
+    # args.kmin=3
+    # args.kmax=4
+    # args.clipping = True
+    # args.mode = "normal"
     PROJECT_FOLDER = os.getcwd()
-    RES_OUTPUT_FOLDER = os.path.join(PROJECT_FOLDER,"..","res","ecoli","{}_data".format(args.exp))
+    RES_OUTPUT_FOLDER = os.path.join(PROJECT_FOLDER,"..","res","ecoli{}".format(("_"+args.mode) if args.mode!="normal" else ""),"{}_data".format(args.exp))
     if not os.path.isdir(RES_OUTPUT_FOLDER):
         os.mkdir(RES_OUTPUT_FOLDER)
 
+    exp = args.kmer_abundance+"_"
+    if args.clipping:
+        exp+="clippedTEST_"
+    if not args.multi_k:
+        exp+="nmk_"
     sys. setrecursionlimit(10000)
 
     ref_file = "../input/truth_data/GCA_027944875.1_ASM2794487v1_genomic.truth_genes.json"
@@ -54,19 +67,34 @@ if __name__ == '__main__':
             read_file = "../input/simulated_data/SRR23044204_1.subset.simulated_gene_dropout.json"
         case "real":
             read_file = "../input/real_data/SRR23044204_1.subset.pandora_gene_calls.json"
+        case "test":
+            read_file = "../input/test.json"
     
     with open(read_file, 'r') as f:
         read_data = json.load(f)
 
-    blocks = {}
+    blocks2reads = {}
     for k,g in read_data.items():
         for block in g:
-            blocks[block[1:]]=None
+            if args.exp in ["truth","simulated"]:
+                add_to_dict(blocks2reads,"_".join(block[1:].split("_")[:-1]),k)
+            else:
+                add_to_dict(blocks2reads,block[1:],k)
     for k,g in ref_data.items():
         for block in g:
-            blocks[block[1:]]=None
-    blocks = list(blocks.keys())
+            add_to_dict(blocks2reads,block[1:],k)
+ 
+    # len_blocks = [(len(l),block) for block, l in blocks2reads.items()]
+    # len_blocks.sort(key = lambda x: (x[0], x[1]))
+    # print(len(len_blocks),len_blocks[:5],len_blocks[-5:])
+    # c,b,_ = plt.hist([l[0] for l in len_blocks], bins = np.arange(len_blocks[0][0],len_blocks[-1][0]+1)-0.5)
+    # plt.show()
+    # plt.plot(np.cumsum(c))
+    # plt.show()
+    
+    blocks = list(blocks2reads.keys())
     blocks.sort()
+
     # blocks = dict([(p1,p2+1) for p1,p2 in zip(list(blocks), list(range(len(blocks))))])
     alphabet = [("+"+p1,"-"+p1) for p1 in blocks]
     print(alphabet[:10])
@@ -79,7 +107,7 @@ if __name__ == '__main__':
     #         a[i]=np.array(int(str(block[0])+str(blocks[block[1:]]))).astype(a.dtype)
     #     ref_seqs.append(a)
     
-    if args.exp != "real":
+    if args.exp in ["truth","simulated"]:
         read_data_trimmed = [["_".join(block.split("_")[:-1]) for block in seq] for seq in read_data.values()]  
     else:
         read_data_trimmed = read_data.values()
@@ -156,36 +184,86 @@ if __name__ == '__main__':
     prev_unitigs = []
 
     res = []
+    kmers_prev = None
+    kmer_sets = []
+    kmer_count_check =[ ]
 
     for k in range(kmin, kmax+1):
         t1 = time()
-        sequences = subseq+[u[0] for u in unitigs.values()]
-        kmers = get_kmer_count_from_sequences(sequences, k=k, n_b=n_b, cyclic=False)
+        ### Count kmers
+        
+        if args.multi_k:
+            klow = kmin
+            kmers = get_kmer_count_from_sequences([(u[0],u[2]) for u in unitigs.values()], k=k, n_b=n_b, cyclic=False,mode=args.kmer_abundance,count_key=0)
+        else:
+            klow = k
+            kmers = {}
+
+        kmers = get_kmer_count_from_sequences(subseq, k=k, n_b=n_b, cyclic=False, kmers=kmers,mode=args.kmer_abundance,count_key=1)
+
+        for kmer in kmers:
+            match args.kmer_abundance:
+                case "reads":
+                    kmers[kmer]=sum(kmers[kmer][:])
+                case "median_unitigs":
+                    kmers[kmer]=kmers[kmer][0] if kmers[kmer][0]!=0 else kmers[kmer][1]
+                case  "max_unitigs_reads":
+                    kmers[kmer]=max(kmers[kmer])
+        
+        kmers_num = {kmer[0]:(bytes2numseq(kmer[0],n_b), bytes2numseq(kmer[1],n_b), a) for kmer, a  in kmers.items()}
+        
+        if kmers_prev is not None:
+            kmers_km1 = get_kmer_count_from_sequences([(u[0],u[2]) for u in kmers_num.values()], k=k-1, n_b=n_b, cyclic=False)
+            kmer_sets.append((set(kmers_prev.keys()),set(kmers_km1.keys()),set(kmers_kp1.keys()),set(kmers.keys())))
+            s_prev, s_next, s_prev_kp1, s_next_kp1 = kmer_sets[-1]
+            kmer_count_check.append([len(s_prev&s_next), len(s_prev-s_next), len(s_next-s_prev), len(s_prev_kp1&s_next_kp1), len(s_prev_kp1-s_next_kp1), len(s_next_kp1-s_prev_kp1)])
+            print(kmer_count_check[-1])
+            if kmer_count_check[-1][4]>0:
+                print([("~~~".join(num2seq(bytes2numseq(k1,n_b),bi_alphabet)),"~~~".join(num2seq(bytes2numseq(k2,n_b),bi_alphabet))) for k1,k2 in (kmer_sets[-1][2]-kmer_sets[-1][3])])
+        kmers_prev = kmers.copy()
+
+        if args.multi_k:
+            kmers_kp1 = get_kmer_count_from_sequences([(u[0],u[2]) for u in unitigs.values()], k=k+1, n_b=n_b, cyclic=False,mode=args.kmer_abundance,count_key=0)
+        else:
+            kmers_kp1 = {}
+        kmers_kp1 = get_kmer_count_from_sequences(subseq, k=k+1, n_b=n_b, cyclic=False, kmers=kmers_kp1,mode=args.kmer_abundance,count_key=1)
+        for kmer in kmers_kp1:
+            kmers_kp1[kmer]=kmers_kp1[kmer][0]
+
+        ### Create DBG on kmers
         edges  = get_debruijn_edges_from_kmers(kmers, n_b=n_b)
         dbg = create_dbg_from_edges(edges, kmers)
-
+        
+        ### Save DBG on kmers
+        kmers_readables = {kmer: (num2seq(k1,bi_alphabet), num2seq(k2,bi_alphabet),a) for kmer,(k1,k2,a) in kmers_num.items()}
+        g = get_gt_graph(edges, kmers_readables)
+        g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}.graphml".format(exp,klow,k)))
+        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}{{}}".format(exp,klow,k)),g,k, ["id","abundance"])
+        
+        ### Graph cleaning
+        kmers_bcalm = [Bcalm_kmer(i,kmer_b[0], a, n_b, bi_alphabet) for i,(kmer_b, a) in enumerate(kmers.items())] if args.mode=="bcalm" else None
         if args.clipping:
-            dbg = dbg_tip_clipping(dbg,k,50,3)
+            dbg , kmers_bcalm = dbg_tip_clipping(dbg,k,1,3,kmers_bcalm)
 
-        unitigs = get_unitigs_from_dbg(dbg, kmers, n_b=n_b)
+        ### Save cleaned graph
+        edges_cleaned = create_edges_from_dbg(dbg)
+        g_cleaned = get_gt_graph(edges_cleaned, kmers_readables)
+        g_cleaned.save(os.path.join(RES_OUTPUT_FOLDER,"graph_clean_{}k_{}_{}.graphml".format(exp,klow,k)))
+        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_clean_{}k_{}_{}{{}}".format(exp,klow,k)),g_cleaned,k, ["id","abundance"])
+
+        ### Retrieve unitigs
+        match args.mode:
+            case "normal":
+                unitigs = get_unitigs_from_dbg(dbg, kmers, n_b=n_b)
+            case "bcalm":
+                unitigs = get_unitigs_bcalm(kmers_bcalm, n_b=n_b, on_kmer=True)
+
+        ### Create compacted DBG on unitigs
         c_edges = get_compacted_dbg_edges_from_unitigs(unitigs,k, n_b=n_b)
+        
+        ### Compute unitig ref
 
-        # unitigs_total = unitigs+prev_unitigs
-        for i,u in enumerate(unitigs):
-            if len(u[0])==(n_b*k) or k ==kmax:
-                # print(u, k)
-                foundInEdges = False
-                if k!=kmax:
-                    for i1, i2, _ in c_edges:
-                        if i1==i or i2==i:
-                            foundInEdges =True
-                            # print(i,i1,i2)
-                            break
-                if not foundInEdges:
-                    # print("not found",u)
-                    prev_unitigs.append(u)
-        unitigs = {u[0]:(bytes2numseq(u[0],n_b), bytes2numseq(u[1],n_b),a) for u,a  in unitigs.items()}
-
+        unitigs = {u[0]:(bytes2numseq(u[0],n_b), bytes2numseq(u[1],n_b),unit.abundance) for u,unit  in unitigs.items()}
         gap_score = -5
         match_score = 1
         mismatch_score = -1
@@ -244,29 +322,50 @@ if __name__ == '__main__':
             # print(ref_string)
             u_ref.append(ref_string)
 
-
+        ### Save compacted DBG
         unitigs_readable = {u: (num2seq(u0,bi_alphabet), num2seq(u1, bi_alphabet),a) for u, (u0,u1,a) in unitigs.items()}
         c_g = get_gt_graph(c_edges, unitigs_readable)
         c_g.vp["ref"] = c_g.new_vp("string", vals=u_ref)
+        c_g.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}.graphml".format(exp,klow,k)))
+        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}{{}}".format(exp,klow,k)),c_g,k, vp = ["id","ref","abundance"])    
 
-        g = get_gt_graph(edges, {kmer[0]: (num2seq(bytes2numseq(kmer[0],n_b),bi_alphabet), num2seq(bytes2numseq(kmer[1],n_b),bi_alphabet),a) for kmer,a in kmers.items()})
-
-                
-        
-        res.append((g,c_g))
-
+        # # unitigs_total = unitigs+prev_unitigs
+        # for i,u in enumerate(unitigs):
+        #     if len(u[0])==(n_b*k) or k ==kmax:
+        #         # print(u, k)
+        #         foundInEdges = False
+        #         if k!=kmax:
+        #             for i1, i2, _ in c_edges:
+        #                 if i1==i or i2==i:
+        #                     foundInEdges =True
+        #                     # print(i,i1,i2)
+        #                     break
+        #         if not foundInEdges:
+        #             # print("not found",u)
+        #             prev_unitigs.append(u)
         t2 = time()
         t=t2-t1
         h,m,s = t//3600, t%3600//60,t%60
         print("Step k = {:{}} processed in {:0=2.0f}:{:0=2.0f}:{:0=2.2f}, there are {} kmers and {} unitigs with {} unitigs selected" .format(k,len(str(kmax+1)),h,m,s,len(kmers),len(unitigs),len(prev_unitigs)))
     prev_unitigs = [bytes2numseq(u[0],n_b) for u in prev_unitigs]
 
-    if args.clipping:
-        exp = "clipped_"
-    else:
-        exp = ""
-    for k, (g,c_g) in zip(range(kmin, kmax+1),res):
-        g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}.graphml".format(exp,kmin,k)))
-        c_g.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}.graphml".format(exp,kmin,k)))
-        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}{{}}".format(exp,kmin,k)),g,k, ["id","abundance"])
-        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}{{}}".format(exp,kmin,k)),c_g,k, vp = ["id","ref","abundance"])    
+
+if len(kmer_count_check)>0:
+    width = 0.5 
+    kmer_count_check = np.array(kmer_count_check).T
+    types = ["common k-1","lost k-1","added k-1","common k+1","lost k+1","added k+1"]
+    weight_counts = { t:k for t,k in zip(types,kmer_count_check)}
+    print(weight_counts)
+    weight_counts = {key:weight_counts[key] for key in weight_counts if key in ["lost k-1","added k-1","lost k+1","added k+1"]}
+    fig, ax = plt.subplots()
+    bottom = np.zeros(kmax-kmin)
+    print(weight_counts)
+    for boolean, weight_count in weight_counts.items():
+        p = ax.bar(np.arange(kmin,kmax)+0.5, weight_count, width, label=boolean, bottom=bottom)
+
+        bottom += weight_count
+
+    ax.set_title("")
+    ax.legend(loc="upper right")
+
+    plt.savefig(os.path.join(RES_OUTPUT_FOLDER,"kmer_count_{}{}_{}.png".format(exp,kmin,kmax)))

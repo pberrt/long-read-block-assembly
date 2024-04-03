@@ -14,7 +14,7 @@ def create_gfa_csv(output_file, g,k,vp=["id"],ep=[]):
         csvwriter = csv.writer(csvfile)
         csvwriter.writerow(["Name"]+vp)
         for v in g.vertices():
-            gfa.add_line("S\t{}\t{}\tLN:i:{}\tid:i:{}".format(g.vp["seq_dot"][v],"*",g.vp["len"][v],g.vp["id"][v]))
+            gfa.add_line("S\t{}\t{}\tLN:i:{}\tdp:i:{}\tid:i:{}".format(g.vp["seq_dot"][v],"*",g.vp["len"][v],g.vp["abundance"][v],g.vp["id"][v]))
             # gfa.add_line("S\t{}\t{}\tLN:i:{}".format(g.vp["seq_dot"][v],"a"*g.vp["len"][v],g.vp["len"][v]))
             # gfa.add_line("S\t{}\t{}\tLN:i:{}".format(int(v),"a"*g.vp["len"][v],g.vp["len"][v]))
             csvwriter.writerow([g.vp["seq_dot"][v],*[g.vp[vpp][v] for vpp in vp]])
