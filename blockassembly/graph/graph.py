@@ -2,61 +2,169 @@
 
 from common.utils import bytes2numseq, numseq2bytes, check_args, num2seq, print_ref_unitigs, rev_comp
 
+from data.data import  Unitig, Kmer
+
 from time import time
 import numpy as np
 
 import graph_tool.all as gt
 
+from collections import UserDict
 
-def get_kmer_count_from_sequence(sequence, a,k=3, kmers = None, n_b=2, cyclic=False,count_key=0):
+class Graph(UserDict):
+    def edges(self):
+        edges = []
+        for s1 in self:
+            for s2 in s1.link[0]:
+                if s1.id<= s2.id:
+                    edges.append((s1.id , s2. id))
+    def compute_edges(self, k):
+        edges = {}
+        for unitig1 in self.data:
+            for unitig2 in self.data:
+                if unitig2.id>=unitig1.id and len(unitig1.seq)>=(k*unitig1.n_b) and len(unitig2.seq)>=(k*unitig2.n_b):
+                    isequal = ( unitig1.seq==unitig1.rev_comp or unitig2.seq==unitig2.rev_comp )
+                    if unitig1.seq[-unitig1.n_b*(k-1):]==unitig2.seq[:unitig2.n_b*(k-1)] and unitig1.can_concatenate[1] and unitig2.can_concatenate[0]:
+                        # print(unitig1.num(),unitig2.num(),1)
+                        # print(unitig1.id,unitig2.id,1)
+                        add_to_edges(edges,(unitig1.id,unitig2.id),1)
+                        add_to_dict(unitig1.link[1],unitig2,1)
+                        add_to_dict(unitig2.link[0],unitig1,1)
+                    if unitig1.rev_comp[-unitig1.n_b*(k-1):]==unitig2.rev_comp[:unitig2.n_b*(k-1)] and unitig1.can_concatenate[0] and unitig2.can_concatenate[1] and unitig1.id!=unitig2.id: # for self edges, 1 is equivalent to -1
+                        # print(unitig1.num(),unitig2.num(),-1)
+                        # print(unitig1.id,unitig2.id,-1)
+                        add_to_edges(edges,(unitig1.id,unitig2.id),-1)
+                        add_to_dict(unitig1.link[0],unitig2,1)
+                        add_to_dict(unitig2.link[1],unitig1,1)
+                    if unitig1.seq[-unitig1.n_b*(k-1):]==unitig2.rev_comp[:unitig2.n_b*(k-1)] and unitig1.can_concatenate[1] and unitig2.can_concatenate[1] and not isequal:
+                        # print(unitig1.num(),unitig2.num(),2)
+                        # print(unitig1.id,unitig2.id,2)
+                        add_to_edges(edges,(unitig1.id,unitig2.id),2)
+                        add_to_dict(unitig1.link[1],unitig2,-1)
+                        # avoid doubling the same self-mirroring edges
+                        if unitig1.id!=unitig2.id:
+                            add_to_dict(unitig2.link[1],unitig1,-1)
+                    if unitig1.rev_comp[-unitig1.n_b*(k-1):]==unitig2.seq[:unitig2.n_b*(k-1)] and unitig1.can_concatenate[0] and unitig2.can_concatenate[0] and not isequal:
+                        # print(unitig1.num(),unitig2.num(),-2)
+                        # print(unitig1.id,unitig2.id,-2)
+                        add_to_edges(edges,(unitig1.id,unitig2.id),-2)
+                        add_to_dict(unitig1.link[0],unitig2,-1)
+                        # avoid doubling the same self-mirroring edges
+                        if unitig1.id!=unitig2.id:
+                            add_to_dict(unitig2.link[0],unitig1,-1)
+        d_edges = edges.copy()
+        edges=set()
+        for e in d_edges:
+            for r in d_edges[e]:
+                edges.add((*e,r))
+        return list(edges)
+
+    def get_edges(self):
+        edges = {}
+        for s1 in self.data:
+            for s2, edge_modes in self.data[s1].link[1].items():
+                if s1.id<=s2.id:
+                    for edge_mode in edge_modes:
+                        add_to_edges(edges,(s1.id,s2.id),(edge_mode,1))
+            for s2, edge_modes in self.data[s1].link[0].items():
+                if s1.id<=s2.id:
+                    for edge_mode in edge_modes:
+                        add_to_edges(edges,(s1.id,s2.id),(edge_mode,-1))
+        d_edges = edges.copy()
+        edges=[]
+        for (i1,i2), l in d_edges.items():
+            l = list(dict.fromkeys(l))
+            for r in l:
+                match r:
+                    case (1,1):
+                        edges.append((i1,i2,1))
+                    case (1,-1):
+                        if i1!=i2:
+                            edges.append((i1,i2,-1))
+                    case (-1,1):
+                        edges.append((i1,i2,2))
+                    case (-1,-1):
+                        edges.append((i1,i2,-2))
+        return edges
+    def clip(self, n=None, a=None, n_neighbors=1):
+        while True:
+            n_cut = 0
+            # Tag tips
+            for s in self.data:
+                # print(len(s),n)
+                if s.is_tip is None:
+                    s.is_tip =False
+                if str(s)== "+mltB~~~+pncC~~~+recA~~~+recX~~~+alaS~~~+yqaB~~~+gshA~~~+luxS~~~-emrB3000074U0009612812615281415420.emrB~~~-emrA3000027AP009048128100822811255411.emrA~~~-emrR3000516U000963281076928113005286.emrR~~~-ygaH~~~-ygaZ~~~-ygaY~~~-proX~~~-proW~~~-proV~~~-nrdF~~~-nrdE~~~-nrdI~~~-ygaM~~~+ygaC~~~+stpA~~~-ygaP~~~-ygaV~~~+kbp~~~-csiR~~~-gabP~~~-gabT~~~-gabD~~~-lhgO~~~-glaH~~~-ygaQ~~~+ypjC~~~+aidA.ypjA":
+                    print(n,len(s), s.abundance, a)
+                if (n is None or len(s)<=n) and (a is None or s.abundance<=a):
+                    for mode in [1,-1]:
+                        if len(s.link[switch_index(0,mode)])==0:
+                            s.is_tip = True
+                # Remove links if tip is linked to only 1 non-tip
+            for s in self.data:
+                if str(s)== "+mltB~~~+pncC~~~+recA~~~+recX~~~+alaS~~~+yqaB~~~+gshA~~~+luxS~~~-emrB3000074U0009612812615281415420.emrB~~~-emrA3000027AP009048128100822811255411.emrA~~~-emrR3000516U000963281076928113005286.emrR~~~-ygaH~~~-ygaZ~~~-ygaY~~~-proX~~~-proW~~~-proV~~~-nrdF~~~-nrdE~~~-nrdI~~~-ygaM~~~+ygaC~~~+stpA~~~-ygaP~~~-ygaV~~~+kbp~~~-csiR~~~-gabP~~~-gabT~~~-gabD~~~-lhgO~~~-glaH~~~-ygaQ~~~+ypjC~~~+aidA.ypjA":
+                    pass
+                if s.is_tip:
+                    for mode in [1,-1]:
+                        n_no_tip = 0
+                        for n_s in s.link[switch_index(1,mode)]:
+                            if not n_s.is_tip:
+                                n_no_tip+=1
+                        if n_no_tip<=n_neighbors and s not in s.link[switch_index(1,mode)] and len(s.link[switch_index(1,mode)])>0:
+                            n_cut+=1
+                            for n_s in s.link[switch_index(1,mode)]:
+                                if s in  n_s.link[switch_index(0,mode)]:
+                                    _ = n_s.link[switch_index(0,mode)].pop(s)
+                            s.link[switch_index(1,mode)].clear()
+                            s.can_concatenate[switch_index(1,mode)]=False
+            if n_cut==0:
+                break
+    
+
+def get_kmer_count_from_sequence(sequence, k=3, kmers = None, cyclic=False,count_key=0):
     """
     Returns list of all possible kmers in a sequence with its reverse complement
     """
     # list to store kmers
-    if kmers is None:
-        kmers = {}
-    # check all kmers in the sequence and compare to the list
-    for i in range(0, len(sequence)):
-        kmer = sequence[i:i + k]
+    is_unitig = isinstance(sequence, Unitig)
         
+    if kmers is None:
+        kmers = Graph()
+    # check all kmers in the sequence and compare to the list
+    length = len(sequence.seq)
+    kb = k*sequence.n_b
+    for i in range(0, length, sequence.n_b):
+        bkmer = sequence.seq[i:i + kb]
+        n = len(bkmer)
         # for cyclic sequence get kmers that wrap from end to beginning
-        length = len(kmer)
-        if length != k:
+        if  n!= kb:
             if cyclic:
-                kmer += sequence[:(k - length)]
+                bkmer += sequence.seq[:(kb - n)]
             else:
                 continue
         
         # cast numseq kmer to bytes and sort it with it reverse complement
-        bkmer = numseq2bytes(kmer,n_b=n_b)
-        bkmer_r = numseq2bytes(rev_comp(kmer),n_b=n_b)
-        bkmer_min, bkmer_max = min(bkmer, bkmer_r), max(bkmer, bkmer_r)
+        bkmer_r = rev_comp(bkmer,True, True,n_b=sequence.n_b)
+        bkmer_min = min(bkmer, bkmer_r)
         # only keep the canonical pair
-        if (bkmer_min, bkmer_max) not in kmers:
-            kmers[(bkmer_min,bkmer_max)]=[0,0]
-            kmers[(bkmer_min,bkmer_max)][count_key]=a
+        if bkmer_min not in kmers:
+            kmer = Kmer(len(kmers),bkmer_min,0)
+            kmers[kmer] = kmer
+        if is_unitig:
+            kmers[bkmer_min].a_unitigs.append(sequence.abundance)
         else:
-            kmers[(bkmer_min,bkmer_max)][count_key]+=a
+            kmers[bkmer_min].a_reads += sequence.abundance
     return kmers
 
 
-def get_kmer_count_from_sequences(sequences, k=3, n_b=2, cyclic=False, kmers=None, mode="normal",count_key = 0):
+def get_kmer_count_from_sequences(sequences, k=3, cyclic=False, kmers=None):
     """
     Returns list of all possible kmers in a batch of sequences with its reverse complement
     """
     if kmers is None:
-        kmers={}
-    if sequences:
-        is_tuple = isinstance(sequences[0], tuple)
-    get_median =  mode in ["median_unitigs", "max_unitigs_reads"]
+        kmers=Graph()
     for sequence in sequences:
-        if is_tuple:
-            sequence,a = sequence
-            if not get_median:
-                a=1
-        else:
-            a = 1
-        kmers = get_kmer_count_from_sequence(sequence, a, k, kmers, n_b=n_b, cyclic = cyclic, count_key=count_key)
+        kmers = get_kmer_count_from_sequence(sequence, k, kmers, cyclic = cyclic)
     return kmers
 
 
@@ -77,7 +185,7 @@ def add_to_dict(d, key, e):
     else:
         d[key]=[e]
 
-def get_debruijn_edges_from_kmers(kmers, n_b=2):
+def get_debruijn_edges_from_kmers(kmers):
     """
     Every possible k-mer is assigned to a node, and we connect one node to another if the k-mers overlaps another.
     Nodes are k-mers, edges are (k-1)-mers.
@@ -88,28 +196,41 @@ def get_debruijn_edges_from_kmers(kmers, n_b=2):
     - the end of reverse complement of node 1 overlaps with the beginning of canonical kmer of node 2 --> Value -2
     """
     edges = {}
-    for i1,k1 in enumerate(kmers):
-        for i2, k2 in enumerate(kmers):
-            if i2>=i1:    
+    for k1 in kmers:
+        for k2 in kmers:
+            if k2.id>=k1.id:    
                 # having both edges of type 1/-1 and 2/-2 is equivalent to k2=rev_comp(k2) or k1=rev_comp(k1)
                 # so only keep the edge e with abs(e) = 1
                 # Note : this is only possible for even values of k
-                if k1[0][n_b:]==k2[0][:-n_b]:
-                    add_to_edges(edges,(i1,i2),1) 
+                if k1.seq[k1.n_b:]==k2.seq[:-k2.n_b]:
+                    add_to_edges(edges,(k1.id,k2.id),1)
+                    add_to_dict(k1.link[1],k2,1)
+                    add_to_dict(k2.link[0],k1,1)
                 # if self-edge 1 is equivalent to -1
-                if k1[1][n_b:]==k2[1][:-n_b] and i1!=i2:
-                    add_to_edges(edges,(i1,i2),-1)
-                if k1[0][n_b:]==k2[1][:-n_b]:
-                    add_to_edges(edges,(i1,i2),2)
-                if k1[1][n_b:]==k2[0][:-n_b]:
-                    add_to_edges(edges,(i1,i2),-2)
+                if k1.rev_comp[k1.n_b:]==k2.rev_comp[:-k2.n_b] and k1.id!=k2.id:
+                    add_to_edges(edges,(k1.id,k2.id),-1)
+                    add_to_dict(k1.link[0],k2,1)
+                    add_to_dict(k1.link[1],k1,1)
+                if k1.seq[k1.n_b:]==k2.rev_comp[:-k2.n_b]:
+                    add_to_edges(edges,(k1.id,k2.id),2)
+                    add_to_dict(k1.link[1],k2,-1)
+                    # avoid doubling the same self-mirroring edges
+                    if k1.id!=k2.id:
+                        add_to_dict(k2.link[1],k1,-1)
+                if k1.rev_comp[k1.n_b:]==k2.seq[:-k2.n_b]:
+                    add_to_edges(edges,(k1.id,k2.id),-2)
+                    add_to_dict(k1.link[0],k2,-1)
+                    # avoid doubling the same self-mirroring edges
+                    if k1.id!=k2.id:
+                        add_to_dict(k2.link[0],k1,-1)
+                    
     d_edges = edges.copy()
     edges=[]
     for i1,i2 in d_edges:
         for r in d_edges[(i1,i2)]:
             edges.append((i1,i2,r))
     return edges
-import sys
+
 def create_dbg_from_edges(edges,kmers):
     dbg={i:[[],[],0,0,0,0, (kmer[0]==kmer[1]), kmer, kmers[kmer]] for i,kmer in enumerate(kmers)}
     print([dbg[node][7] for node in dbg if dbg[node][6]])
@@ -161,6 +282,8 @@ def create_edges_from_dbg(dbg):
                 case (-1,-1):
                     edges.append((i1,i2,-2))
     return edges
+
+
 
 
 
@@ -230,61 +353,13 @@ def get_unitigs_from_dbg(dbg, kmers, n_b=2, verbose = False):
             unitigs_dict[(bunitig_min,bunitig_max)]=unitig_counts[(len(unitig_counts)-1)//2]
     unitigs = {}
     for i, (u,a) in enumerate(unitigs_dict.items()):
-        unitig = Unitig(i,u[0],a,n_b, None)
+        unitig = Unitig(i,u[0],a)
         unitigs[u]=unitig
     return unitigs
 
-      
 
-class Sequence:
-    def __init__(self, i, seq, abundance, n_b, bialphabet):
-        self.seq=seq
-        self.id=i
-        self.abundance = abundance
-        self.can_concatenate = [True,True]
-        self.is_linked = [False,False]
-        self.n_b = n_b
-        self.ba = bialphabet
-        self.rev_comp = rev_comp(self.seq,True,True, self.n_b)
-    def switch(self,val=None):
-        self.seq, self.rev_comp = self.rev_comp, self.seq
-        self.can_concatenate = self.can_concatenate[::-1]
-        self.can_concatenate = self.is_linked[::-1]
-    def compute_revcomp(self):
-        self.rev_comp = rev_comp(self.seq,True,True, self.n_b)
-
-
-class Bcalm_kmer(Sequence):
-    def __init__(self, i, kmer_b, a, n_b, bialphabet):
-        self.unitig = Unitig(i,kmer_b,a, n_b, bialphabet)
-        self.start=None
-        super().__init__(i ,kmer_b, a, n_b, bialphabet)
-    def __repr__(self) -> str:
-        return "({},{})   ".format(self.id,self.unitig.kmers)+str(bytes2numseq(self.seq,self.n_b))+"  "+str(bytes2numseq(self.unitig.seq,self.n_b))+"  "+str(self.start)
-    def check_canonical_unitig(self):
-        if self.start:
-            u_rev = rev_comp(self.unitig.value,True,True, self.n_b)
-            if u_rev<self.unitig.value:
-                self.unitig.switch(u_rev)
-    def check_start(self):
-        self.start = (self.id == self.unitig.kmers[0])
-    
-
-class Unitig(Sequence):
-    def __init__(self, i, seq, a, n_b, bialphabet):
-        self.kmers=[i]
-        self.a_list = [a]
-        super().__init__(i,seq,a,n_b, bialphabet)
-    def switch(self,val=None):
-        super().switch()
-        self.kmers = self.kmers[::-1]
-    def compute_abundance(self):
-        self.abundance = np.median(self.a_list).astype(int)
-    def compute_can_concatenate(self,kmers):
-        self.can_concatenate = [kmers[self.kmers[0]].can_concatenate[0],kmers[self.kmers[-1]].can_concatenate[1]]
-    
-def add_submer(l, e, on_kmer):
-    if on_kmer and (len(l)==0 or l[-1]!=e):
+def add_submer(l, e, on_unitig):
+    if on_unitig or len(l)==0 or l[-1]!=e:
         l.append(e)
 
 def expand_same_overlap(i, e,l, mode, kmers):
@@ -327,43 +402,57 @@ def get_unitig_from_id_list(u_list, kmers, n_b):
         u += kmers[u_list[i]].seq[-n_b:]
     return u
 
-def get_unitigs_bcalm(kmers_bcalm,n_b, on_kmer = True):
+def get_unitigs_bcalm(kmers, k, on_unitig = False):
     list_lr=[[],[]]
+    list(map(lambda kmer: kmer.create_unitig(k),kmers))
     # for kmer in kmers_bcalm:
     #     print(kmer)
-    k = len(kmers_bcalm[0].seq)//n_b
-    for i,kmer in enumerate(kmers_bcalm):
+    # print([kmer.unitig.abundance for kmer in kmers])
+    for kmer in kmers:
+        # print(kmer.unitig.a_list)
+        # print(kmer)
+        # print(kmer.can_concatenate)
         if kmer.can_concatenate[0]:
-            kp = kmer.seq[:(k-1)*n_b]
-            kp_r = rev_comp(kp,True,True,n_b)
+            # print(0,kmer)
+            kp = kmer.seq[:(k-1)*kmer.n_b]
+            kp_r = rev_comp(kp,True,True,kmer.n_b)
+            # print(kp,kp_r)
             if kp <= kp_r:
-                add_submer(list_lr[0],(kp,i), on_kmer)
+                add_submer(list_lr[0],(kp,kmer), on_unitig)
+                # print(0)
             if kp_r <= kp:
-                add_submer(list_lr[1],(kp_r,i), on_kmer)
+                add_submer(list_lr[1],(kp_r,kmer), on_unitig)
+                # print(1)
         else:
             pass
             # print("not 0")
         if kmer.can_concatenate[1]:
-            ks = kmer.seq[-((k-1)*n_b):]
-            ks_r = rev_comp(ks,True, True,n_b)
+            # print(1,kmer)
+            ks = kmer.seq[-((k-1)*kmer.n_b):]
+            ks_r = rev_comp(ks,True, True,kmer.n_b)
+            # print(ks,ks_r)
             if ks <= ks_r:
-                add_submer(list_lr[1],(ks,i), on_kmer)
+                add_submer(list_lr[1],(ks,kmer), on_unitig)
+                # print(0)
             if ks_r <= ks:
-                add_submer(list_lr[0],(ks_r,i), on_kmer)
+                add_submer(list_lr[0],(ks_r,kmer), on_unitig)
+                # print(1)
         else:
             pass
+        # print(list_lr)
             # print("not 1")
-    # for kmer in kmers_bcalm:
-    #     print(kmer)
-    list_lr[0].sort()
-    list_lr[1].sort()
+    # for kmer in kmers:
+    #     print(kmer.num())
+        
+    # print(list_lr)
+    list_lr[0].sort(key=lambda x: (x[0],x[1].id))
+    list_lr[1].sort(key=lambda x: (x[0],x[1].id))
     list_lr = [remove_doubles(l) for l in list_lr]
     il, ir = 0, 0
     ll ,lr = len(list_lr[0]),len(list_lr[1])
-
     while il<ll and ir<lr:
-        le, ile = list_lr[0][il]
-        re, ire = list_lr[1][ir]
+        le, kmer_l = list_lr[0][il]
+        re, kmer_r = list_lr[1][ir]
 
         if le<re:
             il+=1
@@ -376,57 +465,75 @@ def get_unitigs_bcalm(kmers_bcalm,n_b, on_kmer = True):
             # if len(ils)==1 and len(irs)==1:
                 # kmers_bcalm[irs[0]].unitig = kmers_bcalm[irs[0]].unitig + kmers_bcalm[ils[0]].unitig
                 # kmers_bcalm[ils[0]].unitig = [None,ils[0]]
-            if ile!=ire:
+            if kmer_l.id!=kmer_r.id and kmer_l.unitig.id!=kmer_r.unitig.id:
                 # print(ire,ile)
-                if kmers_bcalm[ire].unitig.seq[-(n_b*(k-1)):]!=re:
-                    kmers_bcalm[ire].unitig.switch()
-                if kmers_bcalm[ile].unitig.seq[:(n_b*(k-1))]!=le:
-                    kmers_bcalm[ile].unitig.switch()             
-                kmers_bcalm[ire].unitig.seq += kmers_bcalm[ile].unitig.seq[(n_b*(k-1)):]
-                kmers_bcalm[ire].unitig.a_list += kmers_bcalm[ile].unitig.a_list
-                kmers_bcalm[ire].unitig.kmers+= kmers_bcalm[ile].unitig.kmers
-                for ik in kmers_bcalm[ile].unitig.kmers:
-                    kmers_bcalm[ik].unitig = kmers_bcalm[ire].unitig
+                if kmer_r.unitig.seq[-(kmer_r.n_b*(k-1)):]!=re:
+                    kmer_r.unitig.switch()
+                if kmer_l.unitig.seq[:(kmer_l.n_b*(k-1))]!=le:
+                    kmer_l.unitig.switch()             
+                kmer_r.unitig.seq += kmer_l.unitig.seq[(kmer.n_b*(k-1)):]
+                kmer_r.unitig.a_list += kmer_l.unitig.a_list
+                kmer_r.unitig.kmers+= kmer_l.unitig.kmers
+                kmer_r.unitig.compute_revcomp()
+                for kmer in kmer_l.unitig.kmers:
+                    kmer.unitig = kmer_r.unitig
                 # for kmer in kmers_bcalm:
                 #     print(kmer)
             il+=1
             ir+=1
-    # for kmer in kmers_bcalm:
-    #     print(kmer)
-    list(map(lambda kmer: kmer.check_canonical_unitig(), kmers_bcalm))
-    list(map(lambda kmer: kmer.check_start(), kmers_bcalm))
 
     # for kmer in kmers_bcalm:
     #     print(kmer)
-    list(map(lambda kmer: kmer.unitig.compute_abundance(), kmers_bcalm)) 
-    list(map(lambda kmer: kmer.unitig.compute_can_concatenate(kmers_bcalm), kmers_bcalm)) 
+    list(map(lambda kmer: kmer.check_start(), kmers))
+
+    # for kmer in kmers_bcalm:
+    #     print(kmer)
     # unitigs = [get_unitig_from_id_list(kmer.unitig, kmers_bcalm, n_b) for kmer in kmers_bcalm if kmer.unitig[0] is not None]
-    unitigs = {(kmer.unitig.seq,rev_comp(kmer.unitig.seq,True,True,n_b)): kmer.unitig for kmer in kmers_bcalm if kmer.start}
+    # print([kmer for kmer in kmers])
+    # unitigs = {(kmer.unitig.seq,rev_comp(kmer.unitig.seq,True,True,kmer.n_b)): kmer.unitig for kmer in kmers if kmer.start}
+    
+    unitigs = Graph({kmer.unitig: kmer.unitig for kmer in kmers if kmer.start})
+    list(map(lambda unitig: unitig.check_canonical(), unitigs))
+    list(map(lambda unitig: unitig.compute_can_concatenate(), unitigs))
+    list(map(lambda unitig: unitig.compute_abundance(), unitigs))
     # print(unitigs)
     # unitigs.sort()
+    for i,unitig in enumerate(unitigs):
+        unitig.id = i
     return unitigs
         
 
 def get_compacted_dbg_edges_from_unitigs(unitigs, k,n_b=2):
     # c_edges = [(i1,i2) for i2, u2 in enumerate(unitigs) for i1,u1 in enumerate(unitigs) if len(u1)>=(k*n_b) and len(u2)>=(k*n_b) and u1[-n_b*(k-1):]==u2[:n_b*(k-1)]]
     c_edges = {}
-    for i1,(u1,unitig1) in enumerate(unitigs.items()):
-        for i2, (u2,unitig2) in enumerate(unitigs.items()):
-            if i2>=i1 and len(u1[0])>=(k*n_b) and len(u2[0])>=(k*n_b):
-                isequal = ( u1[0]==u1[1] or u2[0]==u2[1] )
-                if u1[0][-n_b*(k-1):]==u2[0][:n_b*(k-1)] and unitig1.can_concatenate[1] and unitig2.can_concatenate[0]:
+    for unitig1 in unitigs:
+        for unitig2 in unitigs:
+            if unitig2.id>=unitig1.id and len(unitig1.seq)>=(k*n_b) and len(unitig2.seq)>=(k*n_b):
+                isequal = ( unitig1.seq==unitig1.rev_comp or unitig2.seq==unitig2.rev_comp )
+                if unitig1.seq[-n_b*(k-1):]==unitig2.seq[:n_b*(k-1)] and unitig1.can_concatenate[1] and unitig2.can_concatenate[0]:
                     # print(1)
-                    add_to_edges(c_edges,(i1,i2),1) 
-                if u1[1][-n_b*(k-1):]==u2[1][:n_b*(k-1)] and unitig1.can_concatenate[0] and unitig2.can_concatenate[1] and i1!=i2: # for self edges, 1 is equivalent to -1
+                    add_to_edges(c_edges,(unitig1.id,unitig2.id),1)
+                    add_to_dict(unitig1.link[1],unitig2,1)
+                    add_to_dict(unitig2.link[0],unitig1,1)
+                if unitig1.rev_comp[-n_b*(k-1):]==unitig2.rev_comp[:n_b*(k-1)] and unitig1.can_concatenate[0] and unitig2.can_concatenate[1] and unitig1.id!=unitig2.id: # for self edges, 1 is equivalent to -1
                     # print(-1)
-                    add_to_edges(c_edges,(i1,i2),-1)
-                if u1[0][-n_b*(k-1):]==u2[1][:n_b*(k-1)] and unitig1.can_concatenate[1] and unitig2.can_concatenate[1] and not isequal:
+                    add_to_edges(c_edges,(unitig1.id,unitig2.id),-1)
+                    add_to_dict(unitig1.link[0],unitig2,1)
+                    add_to_dict(unitig1.link[1],unitig1,1)
+                if unitig1.seq[-n_b*(k-1):]==unitig2.rev_comp[:n_b*(k-1)] and unitig1.can_concatenate[1] and unitig2.can_concatenate[1] and not isequal:
                     # print(2)
-                    add_to_edges(c_edges,(i1,i2),2) 
-                if u1[1][-n_b*(k-1):]==u2[0][:n_b*(k-1)] and unitig1.can_concatenate[0] and unitig2.can_concatenate[0] and not isequal:
+                    add_to_edges(c_edges,(unitig1.id,unitig2.id),2)
+                    add_to_dict(unitig1.link[1],unitig2,-1)
+                    # avoid doubling the same self-mirroring edges
+                    if unitig1.id!=unitig2.id:
+                        add_to_dict(unitig2.link[1],unitig1,-1)
+                if unitig1.rev_comp[-n_b*(k-1):]==unitig2.seq[:n_b*(k-1)] and unitig1.can_concatenate[0] and unitig2.can_concatenate[0] and not isequal:
                     # print(-2)
-                    add_to_edges(c_edges,(i1,i2),-2) 
-    
+                    add_to_edges(c_edges,(unitig1.id,unitig2.id),-2)
+                    add_to_dict(unitig1.link[0],unitig2,-1)
+                    # avoid doubling the same self-mirroring edges
+                    if unitig1.id!=unitig2.id:
+                        add_to_dict(unitig2.link[0],unitig1,-1)
     d_edges = c_edges.copy()
     c_edges=set()
     for e in d_edges:
@@ -435,7 +542,8 @@ def get_compacted_dbg_edges_from_unitigs(unitigs, k,n_b=2):
     return list(c_edges)
 
 
-def get_gt_graph(edges,sequences):
+def get_gt_graph(sequences):
+    edges = sequences.get_edges()
     g = gt.Graph()
     g.add_vertex(len(sequences))
     edge_source_type=[]
@@ -449,9 +557,9 @@ def get_gt_graph(edges,sequences):
             case -1:
                 st, tt = "arrow","none"
             case 2:
-                st, tt = "square","square"
+                st, tt = "none","none"
             case -2:
-                st, tt = "diamond","diamond"
+                st, tt = "arrow","arrow"
         edge_source_type.append(st)
         edge_target_type.append(tt)
         edge_type.append(r)
@@ -463,14 +571,13 @@ def get_gt_graph(edges,sequences):
 
     est_cytoscape = g.new_edge_property("string", vals = [cytoscape_dict[e] for e in edge_source_type])
     ett_cytoscape = g.new_edge_property("string", vals = [cytoscape_dict[e] for e in edge_target_type])
-    vlen=g.new_vp("int", vals=[len(s[0]) for s in sequences.values()])
+    vlen=g.new_vp("int", vals=[len(s) for s in sequences])
     vname=g.new_vp("int",vals= [int(i) for i in g.vertices()])
     g.vp["len"] = vlen
-    vseq=g.new_vp("string", vals=[str(s[0]) for s in sequences.values()])
+    vseq=g.new_vp("string", vals=[str(s.num()) for s in sequences])
     # print(len(sequences[0][0][0]),sequences[0][0][0])
-    sep = "~~~" if len(sequences[list(sequences.keys())[0]][0][0])>1 else ""
-    vseq_dot=g.new_vp("string", vals=[sep.join(s[0]) for s in sequences.values()])
-    vrevcomp=g.new_vp("string", vals=[str(s[1]) for s in sequences.values()])
+    vseq_dot=g.new_vp("string", vals=[str(s) for s in sequences])
+    vrevcomp=g.new_vp("string", vals=[str(s.num(canonical=False)) for s in sequences])
     g.vp["seq"] = vseq
     g.vp["seq_dot"] = vseq_dot
     g.vp["rev_comp_seq"] = vrevcomp
@@ -483,8 +590,7 @@ def get_gt_graph(edges,sequences):
     g.vp["out_degree"] = g.new_vp("int", vals=[v.out_degree() for v in g.vertices()])
     g.vp["in_degree"] = g.new_vp("int", vals=[v.in_degree() for v in g.vertices()])
     g.vp["all_degree"] = g.new_vp("int", vals=[v.in_degree()+v.out_degree() for v in g.vertices()])
-    print([s[2] for s in sequences.values()])
-    g.vp["abundance"] = g.new_vp("int", vals = [s[2] for s in sequences.values()])
+    g.vp["abundance"] = g.new_vp("int", vals = [s.abundance for s in sequences])
     
     return g
 
@@ -537,6 +643,7 @@ def graph_multi_k(verbose=True, **kwargs):
     return ref_seq, reads, kmers, g, unitigs, c_g
 
 
+# TODO Clip tip if all but one neighbourgs are tips : first tag the small enough tips ; then discard the one that match these restrictions (only 1 non-tip neighbourg)
 def dbg_tip_clipping(dbg, k, tip_length, n_rounds = 1, kmers_bcalm=None):
     for _ in range(n_rounds):
         for node in dbg:
@@ -574,5 +681,6 @@ def old_clip_node(dbg, node, mode, l, kmers_bcalm,verbose):
                 dbg[next_node][switch_index(2,next_mode)]-=1
         return dbg, False, kmers_bcalm
     
-def clip_unitig():
-    pass
+
+
+

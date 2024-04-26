@@ -5,6 +5,8 @@ import argparse
 import numpy as np
 import numpy.random as rd
 
+from rapidfuzz.distance import Levenshtein
+
 def get_args():
     parser = argparse.ArgumentParser(
                     prog='DBG multi-k',
@@ -151,31 +153,118 @@ def seq2num(seq, bi_alphabet):
     num = np.array([bi_alphabet[1][l] for l in seq], dtype=dtype)
     return num
 
-def num2seq(num, bi_alphabet):
+def num2seq(num, bi_alphabet, in_str = False):
     # print(bi_alphabet)
     # print(num)
     # print([(abs(n)-1,(-np.sign(n)+1)//2) for n in num])
-    sep = "~~~" if len(bi_alphabet[0][0])>1 else ""
         
     # seq = sep.join(np.array([bi_alphabet[0][abs(n)-1][(-np.sign(n)+1)//2] for n in num]))
     seq = [bi_alphabet[0][abs(n)-1][(-np.sign(n)+1)//2] for n in num]
+    if in_str:
+        sep = "~~~" if len(bi_alphabet[0][0])>1 else ""
+        seq = sep.join(seq)
     return seq
 
-def numseq2bytes(ns , n_b=2):
+def numseq2bytes(ns , n_b):
     # print("nb numseq2b ", ns, n_b)
     bs = b''
     for n in ns:
         bs = bs + int(n).to_bytes(n_b, "big", signed=True)
     return bs
 
-def bytes2numseq(bs, n_b=2):
+def bytes2numseq(bs, n_b):
     # print("nb b2numseq ", n_b)
     match n_b:
         case 1:
             dtype = np.int8
         case 2:
             dtype = np.int16
+        case 4:
+            dtype = np.int32
+        case 8:
+            dtype = np.int64
     ns = np.array([int.from_bytes(bs[k*n_b:(k+1)*n_b],"big",signed=True) for k in range(len(bs)//n_b)], dtype=dtype)
     # print(ns)
     return ns
     
+def compute_unitig_ref(unitigs, ref_seqs):
+    ### Compute unitig ref
+
+    gap_score = -5
+    match_score = 1
+    mismatch_score = -1
+
+    u_ref = []
+    u_ref_by_id = []
+    for unitig in unitigs:
+        both_u = (unitig.num(), unitig.num(canonical=False))
+        u_ref_scores = []
+        for seq in ref_seqs:
+            u_ref_scores.append([])
+            for u in both_u:
+                if False:
+                    # r = paired.align(seq,u, match_score=match_score, mismatch_score=mismatch_score, gap_score=gap_score)
+                    # s = 0
+                    # i_start = None
+                    # i_end = None
+                    # for i,(r1,r2) in enumerate(r):
+                    #     if (r1!=None and r2!= None) or i_start is not None:
+                    #         # print(i)
+                    #         if i_start is None:
+                    #             # print("step{}".format(1))
+                    #             i_start=i
+                    #         if r1 is None or r2 is None:
+                    #             # print("step{}".format(2))
+                    #             s+=gap_score
+                    #         else:
+                    #             i_end=i
+                    #             if seq[r1]==u[r2]:
+                    #                 # print("step{}".format(3))
+                    #                 s+=match_score
+                    #             else:
+                    #                 # print("step{}".format(4))
+                    #                 s+= mismatch_score
+                    #         # print(i_end, matching_string)
+                    # s -= (len(r)-i_end-1)*gap_score
+                    s = len(set(seq).intersection(set(u)))
+                    u_ref_scores[-1].append(s)
+                u_ref_scores[-1].append(Levenshtein.similarity(seq.num(),u)/len(u))
+        u_ref_scores = [max(urs) for urs in u_ref_scores]
+        u_ref_by_id.append(u_ref_scores)
+        u_ref_scores_id = [(urs,i) for i, urs in enumerate(u_ref_scores)]
+        u_ref_scores_id.sort()
+        # print(u_ref_scores)
+        ref_string_tuples = []
+        for s,i in u_ref_scores_id[::-1]:
+            if s>0:
+                # and s>u_ref_scores[-1][0]/2:
+                ref_string_tuples.append((i,s))
+        # ref_string_tuples.sort()
+        if len(ref_string_tuples)==0:
+            ref_string = "?"
+        elif len(ref_string_tuples)==1:
+            ref_string = str(ref_string_tuples[0][0])
+        else:
+            ref_string = ""
+            for i,s in  ref_string_tuples:
+                ref_string+="{}({}) | ".format(i,s)
+            ref_string=ref_string[0:-3]
+        # print(ref_string)
+        u_ref.append(ref_string)
+    return u_ref, list(np.array(u_ref_by_id)[:,:3].T)
+
+
+def print_ops(source,dest,ops):
+    s1,s2 = "",""
+    for op in ops:
+        match op.tag:
+            case "equal":
+                n = op.src_end-op.src_start
+                s1+=",".join(n*["{:5d}"]).format(*list(source[op.src_start:op.src_end]))
+                s2+=",".join(n*["{:5d}"]).format(*list(dest[op.dest_start:op.dest_end]))
+            case "delete":
+                n = op.src_end-op.src_start
+                s1+=",".join(["{:5d},..({:5d})..,{:5d}"]).format(source[op.src_start],n-2,source[op.src_end-1])
+                s2+="."*23
+    print(s1)
+    print(s2)
