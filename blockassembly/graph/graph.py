@@ -86,7 +86,7 @@ class Graph(UserDict):
                     case (-1,-1):
                         edges.append((i1,i2,-2))
         return edges
-    def clip(self, n=None, a=None, n_neighbors=1):
+    def clip(self, k,  n=None, a=None, n_neighbors=1):
         while True:
             n_cut = 0
             # Tag tips
@@ -117,8 +117,11 @@ class Graph(UserDict):
                                     _ = n_s.link[switch_index(0,mode)].pop(s)
                             s.link[switch_index(1,mode)].clear()
                             s.can_concatenate[switch_index(1,mode)]=False
+            self.data= get_unitigs_bcalm(self, k, on_unitig=True)
+            self.compute_edges(k)
             if n_cut==0:
                 break
+        print(n_cut)
     
 
 def get_kmer_count_from_sequence(sequence, k=3, kmers = None, cyclic=False,count_key=0):

@@ -322,22 +322,20 @@ if __name__ == '__main__':
             c_g.vp["ref_ {}".format(i)] = c_g.new_vp("float", vals=u_ref)
         c_g.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}.graphml".format(exp,klow,k)))
         create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}{{}}".format(exp,klow,k)),c_g,k, vp = ["id","ref","abundance"])    
+        print(len(unitigs))
 
         ### Graph cleaning
         if args.clipping:
             # dbg , kmers_bcalm = dbg_tip_clipping(dbg,k,1,3,kmers)
             ### Save cleaned graph
             # edges_cleaned = create_edges_from_dbg(dbg)
-            unitigs.clip(n=k-1+n_clip)
-            unitigs= get_unitigs_bcalm(unitigs, k, on_unitig=True)
-            unitigs.compute_edges(k)
-            unitigs.clip(a=10)
-            unitigs= get_unitigs_bcalm(unitigs, k, on_unitig=True)
-            unitigs.compute_edges(k)
+            unitigs.clip(k,n=k-1+n_clip)
+            unitigs.clip(k,a=10)
+            print('huge clipping')
+            print(len(unitigs))
             if k==kmax:
-                unitigs.clip(a=10, n_neighbors=5)
-                unitigs= get_unitigs_bcalm(unitigs, k, on_unitig=True)
-                unitigs.compute_edges(k)
+                unitigs.clip(k, a=10, n_neighbors=5)
+            print(len(unitigs))
             
             g_cleaned = get_gt_graph(unitigs)
             g_cleaned.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_clean_{}k_{}_{}.graphml".format(exp,klow,k)))
