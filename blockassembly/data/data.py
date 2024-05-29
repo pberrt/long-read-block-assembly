@@ -13,11 +13,14 @@ class Sequence:
         self.seq=seq
         self.len = len(self.seq)//self.n_b
         self.id=i
+        self.order = None
         self.name = name
+        self.topo_order =-1
         self.abundance = abundance
         self.can_concatenate = [True,True]
         self.link = [{},{}]
         self.is_tip=None
+        self.stability=-1
         self.compute_revcomp()
         
     def __hash__(self) -> int:
@@ -27,7 +30,7 @@ class Sequence:
     def __str__(self):
         return num2seq(bytes2numseq(self.seq, self.n_b), self.bi_alphabet, in_str=True)
     def __repr__(self):
-        return str(self.id)+" : "+str(self.seq) + "|" + str(self.start)
+        return str(self.id)+" : "+str(self.seq)
     def str(self, canonical=True):
         if canonical:
             return num2seq(bytes2numseq(self.seq, self.n_b), self.bi_alphabet, in_str=True)

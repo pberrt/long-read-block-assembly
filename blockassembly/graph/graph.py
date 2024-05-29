@@ -12,14 +12,22 @@ import graph_tool.all as gt
 from collections import UserDict
 
 class Graph(UserDict):
-    def edges(self):
-        edges = []
-        for s1 in self:
-            for s2 in s1.link[0]:
-                if s1.id<= s2.id:
-                    edges.append((s1.id , s2. id))
+    def compute_order(self):
+        for i,s in enumerate(self.data):
+            s.order = i            
+    # def edges(self, on_order):
+    #     edges = []
+    #     if on_order:
+    #         self.compute_order()
+    #     for s1 in self:
+    #         for s2 in s1.link[0]:
+    #             v1,v2 = (s1.order, s2.order) if on_order else (s1.id, s2.id)
+    #             if v1<= v2:
+    #                 edges.append((v1 , v2))
     def compute_edges(self, k):
         edges = {}
+        for unitig in self.data:
+            unitig.link=[{},{}]
         for unitig1 in self.data:
             for unitig2 in self.data:
                 if unitig2.id>=unitig1.id and len(unitig1.seq)>=(k*unitig1.n_b) and len(unitig2.seq)>=(k*unitig2.n_b):
@@ -59,17 +67,22 @@ class Graph(UserDict):
                 edges.add((*e,r))
         return list(edges)
 
-    def get_edges(self):
+    def get_edges(self, on_order = False):
         edges = {}
+        if on_order:
+            self.compute_order()
         for s1 in self.data:
+            v1 = s1.order if on_order else s1.id
             for s2, edge_modes in self.data[s1].link[1].items():
-                if s1.id<=s2.id:
+                v2 = s2.order if on_order else s2.id
+                if v1<=v2:
                     for edge_mode in edge_modes:
-                        add_to_edges(edges,(s1.id,s2.id),(edge_mode,1))
+                        add_to_edges(edges,(v1,v2),(edge_mode,1))
             for s2, edge_modes in self.data[s1].link[0].items():
-                if s1.id<=s2.id:
+                v2 = s2.order if on_order else s2.id
+                if v1<=v2:
                     for edge_mode in edge_modes:
-                        add_to_edges(edges,(s1.id,s2.id),(edge_mode,-1))
+                        add_to_edges(edges,(v1,v2),(edge_mode,-1))
         d_edges = edges.copy()
         edges=[]
         for (i1,i2), l in d_edges.items():
@@ -546,9 +559,10 @@ def get_compacted_dbg_edges_from_unitigs(unitigs, k,n_b=2):
 
 
 def get_gt_graph(sequences):
-    edges = sequences.get_edges()
+    edges = sequences.get_edges(on_order=True)
     g = gt.Graph()
     g.add_vertex(len(sequences))
+
     edge_source_type=[]
     edge_target_type=[]
     edge_type=[]
@@ -575,7 +589,10 @@ def get_gt_graph(sequences):
     est_cytoscape = g.new_edge_property("string", vals = [cytoscape_dict[e] for e in edge_source_type])
     ett_cytoscape = g.new_edge_property("string", vals = [cytoscape_dict[e] for e in edge_target_type])
     vlen=g.new_vp("int", vals=[len(s) for s in sequences])
-    vname=g.new_vp("int",vals= [int(i) for i in g.vertices()])
+    vname=g.new_vp("int",vals= [int(s.id) for s in sequences])
+    vstability=g.new_vp("int",vals= [int(s.stability) for s in sequences])
+    vorder=g.new_vp("int",vals= [s.order for s in sequences])
+    vtopoorder=g.new_vp("int",vals= [s.topo_order for s in sequences])
     g.vp["len"] = vlen
     vseq=g.new_vp("string", vals=[str(s.num()) for s in sequences])
     # print(len(sequences[0][0][0]),sequences[0][0][0])
@@ -585,6 +602,9 @@ def get_gt_graph(sequences):
     g.vp["seq_dot"] = vseq_dot
     g.vp["rev_comp_seq"] = vrevcomp
     g.vp["id"] = vname
+    g.vp["stability"] = vstability
+    g.vp["order"] = vorder
+    g.vp["topo_order"] = vtopoorder
     g.ep["est"] = est
     g.ep["ett"] = ett
     g.ep["edge_type"] = edge_type
