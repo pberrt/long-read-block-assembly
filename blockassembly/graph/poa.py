@@ -92,7 +92,7 @@ class Edge(object):
         return
 
     def __str__(self):
-        nodestr = "(%d) -> (%d) " % (self.inNodeID, self.outNodeID)
+        nodestr = "(%d) -> (%d) " % (self.outNodeID, self.inNodeID)
         if self.labels is None:
             return nodestr
         else:

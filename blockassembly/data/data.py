@@ -21,6 +21,7 @@ class Sequence:
         self.link = [{},{}]
         self.is_tip=None
         self.stability=-1
+        self.original_order = True
         self.compute_revcomp()
         
     def __hash__(self) -> int:
@@ -53,15 +54,13 @@ class Sequence:
         self.seq, self.rev_comp = self.rev_comp, self.seq
         self.can_concatenate = self.can_concatenate[::-1]
         self.can_concatenate = self.link[::-1]
+        self.original_order = not self.original_order
         
     def compute_revcomp(self):
-        r_comp = rev_comp(self.seq,True,True, self.n_b)
-        self.seq, self.rev_comp = min(self.seq,r_comp), max(self.seq, r_comp)
-
-    def check_canonical(self):
-        u_rev = rev_comp(self.seq,True,True, self.n_b)
-        if u_rev<self.seq:
+        self.rev_comp = rev_comp(self.seq,True,True, self.n_b)
+        if self.rev_comp<self.seq:
             self.switch()
+        
     def __eq__(self,s):
         return self.seq ==s or (isinstance(s,Sequence) and self.seq ==s.seq)
     def check_start(self):
