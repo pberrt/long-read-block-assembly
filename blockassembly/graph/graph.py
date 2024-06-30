@@ -509,7 +509,7 @@ def get_unitigs_bcalm(kmers, k, on_unitig = False):
     # unitigs = {(kmer.unitig.seq,rev_comp(kmer.unitig.seq,True,True,kmer.n_b)): kmer.unitig for kmer in kmers if kmer.start}
     
     unitigs = Graph({kmer.unitig: kmer.unitig for kmer in kmers if kmer.start})
-    list(map(lambda unitig: unitig.check_canonical(), unitigs))
+    list(map(lambda unitig: unitig.compute_revcomp(), unitigs))
     list(map(lambda unitig: unitig.compute_can_concatenate(), unitigs))
     list(map(lambda unitig: unitig.compute_abundance(), unitigs))
     # print(unitigs)
