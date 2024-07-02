@@ -314,7 +314,7 @@ if __name__ == '__main__':
     fastq_file = "../input/new_data/SRR23044204_1.fastq"
     read_pos_file = "../input/new_data/SRR23044204_1.pandora_gene_positions.json"
     ref_file = "../input/truth_data/GCA_027944875.1_ASM2794487v1_genomic.truth_genes.json"
-    read_file = "../input/truth_data/SRR23044204_1.subset.truth_genes.json"
+    read_file = "../input/new_data/SRR23044204_1.pandora_gene_calls.json"
 
     print("loading... ", fastq_file)
     # fastq = SeqIO.to_dict(SeqIO.parse(fastq_file,"fastq"))
@@ -356,7 +356,6 @@ if __name__ == '__main__':
     
     read_data_trimmed = read_data.values()
     read_seqs = [Sequence(i, numseq2bytes(seq2num(seq,Sequence.bi_alphabet), Sequence.n_b), 1) for i,seq in enumerate(read_data_trimmed)]
-    
     # with open('reads.npy', 'wb') as f:
     #     np.save(f,np.array([seq.seq for seq in read_seqs],dtype=object))
     # b= {}
@@ -479,21 +478,21 @@ if __name__ == '__main__':
         kmers = get_kmer_count_from_sequences(subseq, k=k, cyclic=False, kmers=kmers)
 
         [kmer.compute_abundance(args.kmer_abundance) for kmer in kmers]
+        print(len(kmers))
         
-        
-        if kmers_prev is not None:
-            kmers_km1 = get_kmer_count_from_sequences(kmers, k=k-1, cyclic=False)
-            kmer_sets.append((set(kmers_prev.keys()),set(kmers_km1.keys()),set(kmers_kp1.keys()),set(kmers.keys())))
-            s_prev, s_next, s_prev_kp1, s_next_kp1 = kmer_sets[-1]
-            kmer_count_check.append([len(s_prev&s_next), len(s_prev-s_next), len(s_next-s_prev), len(s_prev_kp1&s_next_kp1), len(s_prev_kp1-s_next_kp1), len(s_next_kp1-s_prev_kp1)])
-            # print(kmer_count_check[-1])
-            # if kmer_count_check[-1][4]>0:
-            #     print([str(k1) for k1 in (kmer_sets[-1][2]-kmer_sets[-1][3])])
-        kmers_prev = kmers.copy()
+        # if kmers_prev is not None:
+        #     kmers_km1 = get_kmer_count_from_sequences(kmers, k=k-1, cyclic=False)
+        #     kmer_sets.append((set(kmers_prev.keys()),set(kmers_km1.keys()),set(kmers_kp1.keys()),set(kmers.keys())))
+        #     s_prev, s_next, s_prev_kp1, s_next_kp1 = kmer_sets[-1]
+        #     kmer_count_check.append([len(s_prev&s_next), len(s_prev-s_next), len(s_next-s_prev), len(s_prev_kp1&s_next_kp1), len(s_prev_kp1-s_next_kp1), len(s_next_kp1-s_prev_kp1)])
+        #     # print(kmer_count_check[-1])
+        #     # if kmer_count_check[-1][4]>0:
+        #     #     print([str(k1) for k1 in (kmer_sets[-1][2]-kmer_sets[-1][3])])
+        # kmers_prev = kmers.copy()
 
-        kmers_kp1 = get_kmer_count_from_sequences(unitigs, k=k+1, cyclic=False)
-        kmers_kp1 = get_kmer_count_from_sequences(subseq, k=k+1, cyclic=False)
-        [kmer.compute_abundance(args.kmer_abundance) for kmer in kmers_kp1]
+        # kmers_kp1 = get_kmer_count_from_sequences(unitigs, k=k+1, cyclic=False)
+        # kmers_kp1 = get_kmer_count_from_sequences(subseq, k=k+1, cyclic=False)
+        # [kmer.compute_abundance(args.kmer_abundance) for kmer in kmers_kp1]
 
         ### Create DBG on kmers
         kmers.compute_edges(k)
@@ -561,6 +560,7 @@ if __name__ == '__main__':
                 components = add_unitigs_sets({uu:uu for uu in u.link[0]}, components, key=key)
                 components = add_unitigs_sets({uu:uu for uu in u.link[1]}, components, key=key)
         print(len(components))
+        print([[len(ss) for ss in s] for s in components])
         components = [s for s in components if len(s)>1]
         components.sort(key = len)
         chromosome = components[-1]
