@@ -26,27 +26,46 @@ class Graph(UserDict):
     #                 edges.append((v1 , v2))
     def compute_edges(self, k):
         edges = {}
+        # print("k=",k)
         for unitig in self.data:
             unitig.link=[{},{}]
         for unitig1 in self.data:
             for unitig2 in self.data:
                 if unitig2.id>=unitig1.id and len(unitig1.seq)>=(k*unitig1.n_b) and len(unitig2.seq)>=(k*unitig2.n_b):
                     isequal = ( unitig1.seq==unitig1.rev_comp or unitig2.seq==unitig2.rev_comp )
+                    show=False
+                    # if (unitig1.id,unitig2.id) in [(485,682),(682,2310)]:
+                        # print(unitig1.id,unitig2.id)
+                        # print("\t",unitig1.num())
+                        # print("\t",unitig1.num(canonical=False))
+                        # print("\t",unitig2.num())
+                        # print("\t",unitig2.num(canonical=False))
+                        # print(unitig1.rev_comp[-unitig1.n_b*(k-1):]==unitig2.rev_comp[:unitig2.n_b*(k-1)] , unitig1.can_concatenate[0] , unitig2.can_concatenate[1] , unitig1.id!=unitig2.id)
+                        # print(unitig1.rev_comp[-unitig1.n_b*(k-1):],unitig2.rev_comp[:unitig2.n_b*(k-1)] , unitig1.can_concatenate[0] , unitig2.can_concatenate[1] ,unitig1.id,unitig2.id)
+                        # print(unitig1.seq[-unitig1.n_b*(k-1):]==unitig2.rev_comp[:unitig2.n_b*(k-1)] , unitig1.can_concatenate[1] , unitig2.can_concatenate[1] , not isequal)
+                        # print(unitig1.seq[-unitig1.n_b*(k-1):],unitig2.rev_comp[:unitig2.n_b*(k-1)] , unitig1.can_concatenate[1] , unitig2.can_concatenate[1] , isequal)
+
                     if unitig1.seq[-unitig1.n_b*(k-1):]==unitig2.seq[:unitig2.n_b*(k-1)] and unitig1.can_concatenate[1] and unitig2.can_concatenate[0]:
                         # print(unitig1.num(),unitig2.num(),1)
                         # print(unitig1.id,unitig2.id,1)
+                        if show:
+                            print(1)
                         add_to_edges(edges,(unitig1.id,unitig2.id),1)
                         add_to_dict(unitig1.link[1],unitig2,1)
                         add_to_dict(unitig2.link[0],unitig1,1)
                     if unitig1.rev_comp[-unitig1.n_b*(k-1):]==unitig2.rev_comp[:unitig2.n_b*(k-1)] and unitig1.can_concatenate[0] and unitig2.can_concatenate[1] and unitig1.id!=unitig2.id: # for self edges, 1 is equivalent to -1
                         # print(unitig1.num(),unitig2.num(),-1)
                         # print(unitig1.id,unitig2.id,-1)
+                        if show:
+                            print(-1)
                         add_to_edges(edges,(unitig1.id,unitig2.id),-1)
                         add_to_dict(unitig1.link[0],unitig2,1)
                         add_to_dict(unitig2.link[1],unitig1,1)
                     if unitig1.seq[-unitig1.n_b*(k-1):]==unitig2.rev_comp[:unitig2.n_b*(k-1)] and unitig1.can_concatenate[1] and unitig2.can_concatenate[1] and not isequal:
                         # print(unitig1.num(),unitig2.num(),2)
                         # print(unitig1.id,unitig2.id,2)
+                        if show:
+                            print(2)
                         add_to_edges(edges,(unitig1.id,unitig2.id),2)
                         add_to_dict(unitig1.link[1],unitig2,-1)
                         # avoid doubling the same self-mirroring edges
@@ -55,6 +74,8 @@ class Graph(UserDict):
                     if unitig1.rev_comp[-unitig1.n_b*(k-1):]==unitig2.seq[:unitig2.n_b*(k-1)] and unitig1.can_concatenate[0] and unitig2.can_concatenate[0] and not isequal:
                         # print(unitig1.num(),unitig2.num(),-2)
                         # print(unitig1.id,unitig2.id,-2)
+                        if show:
+                            print(-2)
                         add_to_edges(edges,(unitig1.id,unitig2.id),-2)
                         add_to_dict(unitig1.link[0],unitig2,-1)
                         # avoid doubling the same self-mirroring edges
@@ -107,16 +128,16 @@ class Graph(UserDict):
                 # print(len(s),n)
                 if s.is_tip is None:
                     s.is_tip =False
-                if str(s)== "+mltB~~~+pncC~~~+recA~~~+recX~~~+alaS~~~+yqaB~~~+gshA~~~+luxS~~~-emrB3000074U0009612812615281415420.emrB~~~-emrA3000027AP009048128100822811255411.emrA~~~-emrR3000516U000963281076928113005286.emrR~~~-ygaH~~~-ygaZ~~~-ygaY~~~-proX~~~-proW~~~-proV~~~-nrdF~~~-nrdE~~~-nrdI~~~-ygaM~~~+ygaC~~~+stpA~~~-ygaP~~~-ygaV~~~+kbp~~~-csiR~~~-gabP~~~-gabT~~~-gabD~~~-lhgO~~~-glaH~~~-ygaQ~~~+ypjC~~~+aidA.ypjA":
-                    print(n,len(s), s.abundance, a)
+                # if str(s)== "+mltB~~~+pncC~~~+recA~~~+recX~~~+alaS~~~+yqaB~~~+gshA~~~+luxS~~~-emrB3000074U0009612812615281415420.emrB~~~-emrA3000027AP009048128100822811255411.emrA~~~-emrR3000516U000963281076928113005286.emrR~~~-ygaH~~~-ygaZ~~~-ygaY~~~-proX~~~-proW~~~-proV~~~-nrdF~~~-nrdE~~~-nrdI~~~-ygaM~~~+ygaC~~~+stpA~~~-ygaP~~~-ygaV~~~+kbp~~~-csiR~~~-gabP~~~-gabT~~~-gabD~~~-lhgO~~~-glaH~~~-ygaQ~~~+ypjC~~~+aidA.ypjA":
+                #     print(n,len(s), s.abundance, a)
                 if (n is None or len(s)<=n) and (a is None or s.abundance<=a):
                     for mode in [1,-1]:
                         if len(s.link[switch_index(0,mode)])==0:
                             s.is_tip = True
                 # Remove links if tip is linked to only 1 non-tip
             for s in self.data:
-                if str(s)== "+mltB~~~+pncC~~~+recA~~~+recX~~~+alaS~~~+yqaB~~~+gshA~~~+luxS~~~-emrB3000074U0009612812615281415420.emrB~~~-emrA3000027AP009048128100822811255411.emrA~~~-emrR3000516U000963281076928113005286.emrR~~~-ygaH~~~-ygaZ~~~-ygaY~~~-proX~~~-proW~~~-proV~~~-nrdF~~~-nrdE~~~-nrdI~~~-ygaM~~~+ygaC~~~+stpA~~~-ygaP~~~-ygaV~~~+kbp~~~-csiR~~~-gabP~~~-gabT~~~-gabD~~~-lhgO~~~-glaH~~~-ygaQ~~~+ypjC~~~+aidA.ypjA":
-                    pass
+                # if str(s)== "+mltB~~~+pncC~~~+recA~~~+recX~~~+alaS~~~+yqaB~~~+gshA~~~+luxS~~~-emrB3000074U0009612812615281415420.emrB~~~-emrA3000027AP009048128100822811255411.emrA~~~-emrR3000516U000963281076928113005286.emrR~~~-ygaH~~~-ygaZ~~~-ygaY~~~-proX~~~-proW~~~-proV~~~-nrdF~~~-nrdE~~~-nrdI~~~-ygaM~~~+ygaC~~~+stpA~~~-ygaP~~~-ygaV~~~+kbp~~~-csiR~~~-gabP~~~-gabT~~~-gabD~~~-lhgO~~~-glaH~~~-ygaQ~~~+ypjC~~~+aidA.ypjA":
+                #     pass
                 if s.is_tip:
                     for mode in [1,-1]:
                         n_no_tip = 0
@@ -134,7 +155,19 @@ class Graph(UserDict):
             self.compute_edges(k)
             if n_cut==0:
                 break
-        print(n_cut)
+        # print(n_cut)
+    def detach_abundance(self, k, a=None):
+        for s in self.data:
+            if s.abundance<=a:
+                for mode in [1,-1]:
+                    for n_s in s.link[switch_index(1,mode)]:
+                        if s in  n_s.link[switch_index(0,mode)]:
+                            _ = n_s.link[switch_index(0,mode)].pop(s)
+                    s.link[switch_index(1,mode)].clear()
+                    s.can_concatenate[switch_index(1,mode)]=False
+        self.compute_edges(k)
+
+            
     
 
 def get_kmer_count_from_sequence(sequence, k=3, kmers = None, cyclic=False,count_key=0):
@@ -562,6 +595,7 @@ def get_gt_graph(sequences):
     edges = sequences.get_edges(on_order=True)
     g = gt.Graph()
     g.add_vertex(len(sequences))
+    # print(len(sequences))
 
     edge_source_type=[]
     edge_target_type=[]
@@ -598,9 +632,10 @@ def get_gt_graph(sequences):
     # print(len(sequences[0][0][0]),sequences[0][0][0])
     vseq_dot=g.new_vp("string", vals=[str(s) for s in sequences])
     vrevcomp=g.new_vp("string", vals=[str(s.num(canonical=False)) for s in sequences])
-    g.vp["seq"] = vseq
-    g.vp["seq_dot"] = vseq_dot
-    g.vp["rev_comp_seq"] = vrevcomp
+    g.vp["debug"] = g.new_vp("string", vals=[str(s.debug) for s in sequences])
+    g.vp["z_seq"] = vseq
+    g.vp["z_seq_dot"] = vseq_dot
+    g.vp["z_rev_comp_seq"] = vrevcomp
     g.vp["id"] = vname
     g.vp["stability"] = vstability
     g.vp["order"] = vorder

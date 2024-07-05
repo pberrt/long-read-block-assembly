@@ -268,3 +268,6 @@ def print_ops(source,dest,ops):
                 s2+="."*23
     print(s1)
     print(s2)
+
+def hms(t):
+    return t//3600, t%3600//60,t%60

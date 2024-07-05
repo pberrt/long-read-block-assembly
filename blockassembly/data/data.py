@@ -22,6 +22,7 @@ class Sequence:
         self.is_tip=None
         self.stability=-1
         self.original_order = True
+        self.debug=""
         self.compute_revcomp()
         
     def __hash__(self) -> int:
@@ -53,7 +54,7 @@ class Sequence:
     def switch(self):
         self.seq, self.rev_comp = self.rev_comp, self.seq
         self.can_concatenate = self.can_concatenate[::-1]
-        self.can_concatenate = self.link[::-1]
+        self.link = self.link[::-1]
         self.original_order = not self.original_order
         
     def compute_revcomp(self):
@@ -68,6 +69,8 @@ class Sequence:
     def create_unitig(self,k):
         self.unitig = Unitig(self,k)
 
+def get_num(s, mode):
+    return s.num() if mode==1 else s.num(canonical=False)
 
 class Kmer(Sequence):
     def __init__(self, i, kmer_b, a):

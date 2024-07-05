@@ -3,291 +3,49 @@
 import os
 import sys
 from time import time
+import glob
 
 import json
 import argparse
 
-import matplotlib.pyplot as plt
 import numpy as np
-import csv
 
-import gfapy
-import paired
-
-from rapidfuzz.distance import Levenshtein
-
-from graph.poa import generate_poa_graph
-
-from common.utils import bytes2numseq, numseq2bytes, seq2num, num2seq, compute_unitig_ref, print_ops
-from data.data import Sequence
-from graph.graph import graph_multi_k, dbg_tip_clipping, get_unitigs_bcalm, create_edges_from_dbg, add_to_dict, switch_index
-from graph.graph import get_kmer_count_from_sequences, get_debruijn_edges_from_kmers, get_unitigs_from_dbg, get_compacted_dbg_edges_from_unitigs, get_gt_graph, create_dbg_from_edges
+from common.utils import numseq2bytes, seq2num, hms
+from data.data import Sequence, get_num
+from graph.graph import get_unitigs_bcalm, add_to_dict, switch_index
+from graph.graph import get_kmer_count_from_sequences, get_gt_graph
 from graph.graph import Graph
-from data.visu import plot_debruijn_graph_gt, plot_compacted_debruijn_graph_gt
-from data.inout import create_gfa_csv, save_sequences, load_sequences
-import warnings
+from graph.poa import POAGraph, generate_poa_graph
+from graph.components import add_unitigs_sets, check_cycles
+from graph.dag import get_gt_graph_poa, get_max_block, get_all_path, add_coordinate, needleman_wunsch_inclusion
+from data.inout import create_gfa_csv, save_sequences
 
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.colors import ListedColormap, LinearSegmentedColormap, BoundaryNorm
-from itertools import product
 
-from Bio import SeqIO
+from Bio import SeqIO, SeqRecord
+import pyfastx
 
 
 def get_args():
     parser = argparse.ArgumentParser(
                     prog='DBG multi-k',
                     description='')
+    parser.add_argument('--sample', default="GCA_027944575.1_ASM2794457v1_genomic")
     parser.add_argument('--exp', default=None)
     parser.add_argument('--kmin',type=int,default=2)
     parser.add_argument('--kmax', type=int, default=35)
     parser.add_argument('--clipping', action="store_true")
-    parser.add_argument('--kmer-abundance', choices = ["reads", "median_unitigs", "max_unitigs_reads"], default="max_unitigs_reads")
+    parser.add_argument('--kmer-abundance', choices = ["reads", "median_unitigs", "max_unitigs_reads"], default="reads")
     args = parser.parse_args()
     return args
-def add_unitigs_sets(unitigs,components,key):
-    for u in unitigs:
-        if u not in components[key]:
-            components[key][u]=u
-            components = add_unitigs_sets({uu:uu for uu in u.link[0]}, components, key=key)
-            components = add_unitigs_sets({uu:uu for uu in u.link[1]}, components, key=key)
-    return components
-
-def go_through(seen, rp, n, mode, verbose=False):
-    if verbose:
-        print(n.id,mode)
-    if (n,mode) in rp:
-        return True
-    if (n,mode) in seen:
-        return False
-    rp[(n,mode)]=None
-    seen[(n,mode)]=None
-    for next_n, edge_list in n.link[switch_index(1,mode)].items():
-        for edge_mode in edge_list:
-            next_mode = mode*edge_mode
-            if go_through(seen,rp,next_n, next_mode, verbose=verbose):
-                return True
-    _ = rp.pop((n,mode))
-    return False
-def check_cycles(graph, verbose=False):
-    seen = {}
-    rec_pile = {}
-    for u in graph:
-        if go_through(seen,rec_pile,u,1, verbose=verbose):
-            return True, seen
-        if go_through(seen,rec_pile,u,-1, verbose=verbose):
-            return True, seen
-    return False, seen
-def add_coordinate(s, mode, coordinates,c, k):
-    # print(s.id)
-    if s not in coordinates or c> coordinates[s][0][0]:
-        # if all([prev_s in coordinates for prev_s in s.link[switch_index(0,mode)]]) or c==0:
-            # if len(s.link[switch_index(0,mode)])==0 or c==0:
-            # if c==0:
-            #     new_c = 0
-            # else:
-            #     new_c = max([coordinates[prev_s][0][1] - (k-1) for prev_s in s.link[switch_index(0,mode)]])
-            # coordinates[s]=([new_c,new_c+len(s)],mode)
-        coordinates[s]=([c,c+len(s)],mode)
-        # print(s.id)
-        # c = c+1
-        # for next_s, edge_modes in s.link[switch_index(0,mode)].items():
-        #     for edge_mode in edge_modes:
-        #         c = max(c, coordinates[next_s][0]+1)
-        # if s.id in [112,132]:
-        #     print([coordinates[prev_s][0] for prev_s in s.link[switch_index(0,mode)]])
-        #     print(s.id, c, new_c)
-        for next_s, edge_modes in s.link[switch_index(1,mode)].items():
-            for edge_mode in edge_modes:
-                next_mode = mode*edge_mode
-                coordinates = add_coordinate(next_s, next_mode, coordinates, c + len(s) - (k-1)+1,k)
-            
-    return coordinates
-def sort_by_median(x):
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        m = np.median(np.argwhere(x).flatten())
-        if np.isnan(m):
-            m=-1
-    return m
-def get_max_block(x, wait=0, cyclic=False):
-    c = [0,-1,-1]
-    n_c = [0,-1,-1]
-    new= True
-    stop = False
-    w = wait
-    lx = len(x)
-    i=0
-    while True:
-        xx= x[i]
-        if xx==1 or (w>0 and not new):
-            if xx==1:
-                if n_c[1]==i:
-                    break
-                else:
-                    n_c[2]=i
-                    n_c[0]+=1
-                w=wait
-            else:
-                w-=1
-            if new:
-                n_c[1]=i
-                new=False
-        else:
-            if stop:
-                break
-            if not new:
-                c = max(c,n_c,key=lambda x: x[0])
-                n_c = [0,-1,-1]
-            new = True
-        i+=1
-        if i>=lx:
-            if cyclic:
-                i=0
-                stop = True
-            else:
-                break
-
-    c = max(c,n_c,key=lambda x: x[0])
-    c.append(c[2]+1-c[1])
-    if c[3]<=0:
-        c[3]+=lx
-    return c
-def get_max_block_mean(x, wait=0, cyclic=False):
-    _,s,e, l = get_max_block(x, wait, cyclic)
-    return s+(l-1)/2
-
-def get_gt_graph_poa(g_poa):
-        g = gt.Graph()
-        g.add_vertex(g_poa._nextnodeID)
-        islink = g.new_edge_property("int")
-        est = g.new_edge_property("string")
-        ett = g.new_edge_property("string")
-        elt = g.new_edge_property("string")
-        ect = g.new_edge_property("string")
-        names =[g_poa.nodedict[nID].base for nID in range(g_poa._nextnodeID)]
-        for nID in g_poa.nodeidlist:
-            node = g_poa.nodedict[nID]
-            edges = node.outEdges
-            for nextID in edges:
-                g.add_edge(nID, nextID)
-            for alignedID in node.alignedTo:
-                if nID<alignedID:
-                    g.add_edge(nID, alignedID)
-                    islink[(nID, alignedID)]=1
-                    est[(nID,alignedID)] = "None"
-                    ett[(nID,alignedID)] = "None"
-                    elt[(nID,alignedID)] = "Equal-Dash"
-                    ect[(nID,alignedID)] = "#FF0000"
-        for e in g.edges():
-            if not islink[e]:
-                islink[e], est[e], ett[e], elt[e], ect[e] = 0, "None", "Arrow", "Solid", "#000000"
-        topo_order = g.new_vertex_property("int")
-        for pnode in g_poa._simplified_graph_rep():
-            for nid in pnode.node_ids:
-                topo_order[nid]=pnode.pnode_id
-        vid=g.new_vp("int",vals = [nID for nID in range(g_poa._nextnodeID)])
-        vname=g.new_vp("int",vals= names)
-        g.vp["id"] = vid
-        g.vp["base"] = vname
-        g.vp["out_degree"] = g.new_vp("int", vals=[v.out_degree() for v in g.vertices()])
-        g.vp["in_degree"] = g.new_vp("int", vals=[v.in_degree() for v in g.vertices()])
-        g.vp["topo_order"] = g.new_vp("int", vals=topo_order)
-        g.ep["islink"] = islink
-        g.ep["est"] = est
-        g.ep["ett"] = ett
-        g.ep["elt"] = elt
-        g.ep["ect"] = ect
-        return g
-def get_all_path(s1,s2, mode, visited, path,res):
-    path.append((s1,mode))
-    visited.add(s1)
-    if s1 == s2:
-        res.append(path[::])
-    else:
-        for n_s1 in s1.link[switch_index(1,mode)]:
-            if n_s1 not in visited and n_s1 in coordinates:
-                n_mode = coordinates[n_s1][1]
-                res = get_all_path(n_s1, s2, n_mode, visited,path,res)
-    
-    path.pop()
-    visited.remove(s1)
-    return res
-            
-def get_num(s, mode):
-    return s.num() if mode==1 else s.num(canonical=False)
-def needleman_wunsch_inclusion(x, y):
-    # get the lengths of x and y
-    N, M = len(x), len(y)
-    gap_score = 0.5
-    def score(a, b):
-        # Scoring function: returns 1 if elements are equal, 0 otherwise
-        if a in b:
-            return 1, a, a
-        else:
-            return -1, a, "M"
-
-    # Direction constants for traceback
-    DIAG, LEFT, UP = (-1, -1), (-1, 0), (0, -1)
-    # Initialize score (F) and pointer (Ptr) matrices
-    F, Ptr, Elem = {}, {}, {}
-    F[-1, -1] = 0
-    # Initial scoring for gaps along x
-    for i in range(N):
-        # F[i, -1] = -i
-        F[i, -1] = 0
-    # Initial scoring for gaps along y
-    for j in range(M):
-        # F[-1, j] = -j
-        F[-1, j] = 0
-    # Option for Ptr to trace back alignment
-    option_Ptr = DIAG, LEFT, UP
-    # Fill F and Ptr tables
-    for i, j in product(range(N), range(M)):
-        # Score options: match/mismatch, gap in x, gap in y
-        gap_x = 0 if j == M-1 else gap_score
-        gap_y = 0 if i == N-1 else gap_score
-        s, e1, e2 = score(x[i], y[j])
-        option_F = (
-            F[i - 1, j - 1] + s,  # Match/mismatch
-            F[i - 1, j] - gap_x,  # Gap in x
-            F[i, j - 1] - gap_y,  # Gap in y
-        )
-        option_Elem = [(e1,e2),(e1,"*"),("*",e2)]
-        # Choose best option for F and Ptr
-        F[i, j], Ptr[i, j], Elem[i,j] = max(zip(option_F, option_Ptr, option_Elem))
-    # Trace back to get the alignment
-    alignment_score = F[N-1,M-1]
-    alignment = []
-    i, j = N - 1, M - 1
-    while i >= 0 and j >= 0:
-        direction = Ptr[i, j]
-        # Add aligned elements or gaps based on direction
-        if direction == DIAG:
-            element = x[i]
-        elif direction == LEFT:
-            element = x[i] # Insert gap in y
-        elif direction == UP:
-            element = "*"  # Insert gap in x
-        alignment.append(Elem[i,j])
-        di, dj = direction
-        i, j = i + di, j + dj
-    # Add remaining gaps if any
-    while i >= 0:
-        alignment.append((x[i],"*"))  # Gap in y
-        i -= 1
-    while j >= 0:
-        alignment.append(("*","M"))  # Gap in x
-        j -= 1
-    return alignment[::-1], alignment_score,F
-
+       
 if __name__ == '__main__':
-    
+    t_start = time()
     args = get_args()
     
     exp=args.exp
     exp = "TEST"
+    sample_name = args.sample
     # args.exp = "real"
     # args.kmin=23
     # args.kmax=23
@@ -295,46 +53,59 @@ if __name__ == '__main__':
     # args.kmer_abundance = "max_unitigs_reads"
 
     PROJECT_FOLDER = os.getcwd()
-    # TODO Change result folder according to exp
-    RES_OUTPUT_FOLDER = os.path.join(PROJECT_FOLDER,"..","res","ecoli_bcalm","{}_data".format(exp))
-    
-    # filename = os.path.join(RES_OUTPUT_FOLDER,"res_unitigs_max_unitigs_reads_clippedTEST_k_2_35.pkl")
-    # unitigs = load_sequences(filename)
-    unitigs = Graph()
 
-    
-    
-    
+    # TODO Change result folder according to exp
+    RES_OUTPUT_FOLDER = os.path.join(PROJECT_FOLDER,"..","res","ecoli_bcalm","{}_data".format(exp),sample_name)
     if not os.path.isdir(RES_OUTPUT_FOLDER):
         os.mkdir(RES_OUTPUT_FOLDER)
+    RES_FASTA_FOLDER = os.path.join(RES_OUTPUT_FOLDER,"coordinates_fasta")
+    if not os.path.exists(RES_FASTA_FOLDER):
+        os.mkdir(RES_FASTA_FOLDER)
+
     sys. setrecursionlimit(10000)
 
+    t= time()
+    print("\n"+"-"*50+"\n"+"\t\tLOAD INPUT\n"+"-"*50)
+    INPUT_FOLDER = os.path.join("..","input","all_data",sample_name)
+    fastq_file = os.path.join(INPUT_FOLDER,(glob.glob(INPUT_FOLDER+"/*.fastq")[0]).split("/")[-1])
+    read_file = os.path.join(INPUT_FOLDER,"gene_calls_with_gene_filtering.json")
+    read_pos_file = os.path.join(INPUT_FOLDER,"gene_positions_with_gene_filtering.json")
+    # read_file = os.path.join(INPUT_FOLDER,"gene_calls_without_gene_filtering.json")
+    # read_pos_file = os.path.join(INPUT_FOLDER,"gene_positions_without_gene_filtering.json")
 
-    # TODO change according to exp
-    fastq_file = "../input/new_data/SRR23044204_1.fastq"
-    read_pos_file = "../input/new_data/SRR23044204_1.pandora_gene_positions.json"
-    ref_file = "../input/truth_data/GCA_027944875.1_ASM2794487v1_genomic.truth_genes.json"
-    read_file = "../input/new_data/SRR23044204_1.pandora_gene_calls.json"
 
-    print("loading... ", fastq_file)
+    # TODO add ref parsing and ref data
+    # ref_file = "../input/truth_data/GCA_027944875.1_ASM2794487v1_genomic.truth_genes.json"
+    # read_file = "../input/new_data/SRR23044204_1.pandora_gene_calls.json"
+    # read_pos_file = "../input/new_data/SRR23044204_1.pandora_gene_positions.json"
+    # fastq_file ="../input/new_data/SRR23044204_1.fastq"
+    print("Loading FASTQ file...: ", fastq_file)
     # fastq = SeqIO.to_dict(SeqIO.parse(fastq_file,"fastq"))
-    print("loading... ", read_pos_file)
-    with open(read_pos_file, 'r') as f:
-        gene_positions_reads = json.load(f)
-    print("loading... ", ref_file)
-    with open(ref_file, 'r') as f:
-        ref_data = json.load(f)
-    print("loading... ", read_file)
+    fastq = pyfastx.Fastq(fastq_file)
+    print("Loading gene calls file...:... ", read_file)
     with open(read_file, 'r') as f:
         read_data = json.load(f)
+    print("Loading gene positions file...: ", read_pos_file)
+    with open(read_pos_file, 'r') as f:
+        gene_positions_reads = json.load(f)
+    # print("\tloading... ", ref_file)
+    # with open(ref_file, 'r') as f:
+    #     ref_data = json.load(f)
+    print("Input loading time: {:0=2.0f}:{:0=2.0f}:{:0=2.2f}".format(*hms(time()-t)))
+    
+    t= time()
+    print("\n"+"-"*50+"\n"+"\t\tINPUT PROCESSING\n"+"-"*50)
+    # filename = os.path.join(RES_OUTPUT_FOLDER,"res_unitigs_max_unitigs_reads_clippedTEST_k_2_35.pkl")
+    # unitigs = load_sequences(filename)
+    # unitigs = Graph()
 
     blocks2reads = {}
     for k,g in read_data.items():
         for block in g:
             add_to_dict(blocks2reads,block[1:],k)
-    for k,g in ref_data.items():
-        for block in g:
-            add_to_dict(blocks2reads,block[1:],k)
+    # for k,g in ref_data.items():
+    #     for block in g:
+    #         add_to_dict(blocks2reads,block[1:],k)
      
     blocks = list(blocks2reads.keys())
     blocks.sort()
@@ -352,10 +123,11 @@ if __name__ == '__main__':
         Sequence.n_b = 8
     Sequence.bi_alphabet = bi_alphabet
 
-    ref_seqs = [Sequence(i,numseq2bytes(seq2num(seq,Sequence.bi_alphabet),Sequence.n_b),1) for i,seq in enumerate(ref_data.values())]
+    # ref_seqs = [Sequence(i,numseq2bytes(seq2num(seq,Sequence.bi_alphabet),Sequence.n_b),1) for i,seq in enumerate(ref_data.values())]
     
     read_data_trimmed = read_data.values()
     read_seqs = [Sequence(i, numseq2bytes(seq2num(seq,Sequence.bi_alphabet), Sequence.n_b), 1) for i,seq in enumerate(read_data_trimmed)]
+    print("The sample contains {} reads and {} different blocks.".format(len(read_seqs), len(blocks)))
     # with open('reads.npy', 'wb') as f:
     #     np.save(f,np.array([seq.seq for seq in read_seqs],dtype=object))
     # b= {}
@@ -455,16 +227,20 @@ if __name__ == '__main__':
     # print("{} elements are only present in reads:".format(len(diff2)))
     # print("\t",*diff2)
 
+    print("Input processing time: {:0=2.0f}:{:0=2.0f}:{:0=2.2f}".format(*hms(time()-t)))
  
+    t= time()
+    print("\n"+"-"*50+"\n"+"\tDe Bruijn graph backbone construction\n"+"-"*50)
     subseq = read_seqs[:]
     kmin, kmax = args.kmin, args.kmax
-    prev_unitigs = []
+    # prev_unitigs = []
+    # unitigs = []
 
     res = []
     kmers_prev = None
     kmer_sets = []
     kmer_count_check =[]
-
+    need_break=False
     n_clip = 5
 
     for k in range(kmin, kmax+1):
@@ -473,12 +249,12 @@ if __name__ == '__main__':
         ### Count kmers
         
         klow = kmin
-        kmers = get_kmer_count_from_sequences(unitigs, k=k, cyclic=False)
-
+        # kmers = get_kmer_count_from_sequences(unitigs, k=k, cyclic=False)
+        kmers = Graph()
         kmers = get_kmer_count_from_sequences(subseq, k=k, cyclic=False, kmers=kmers)
 
         [kmer.compute_abundance(args.kmer_abundance) for kmer in kmers]
-        print(len(kmers))
+        print("\tThere are {} kmers".format(len(kmers)))
         
         # if kmers_prev is not None:
         #     kmers_km1 = get_kmer_count_from_sequences(kmers, k=k-1, cyclic=False)
@@ -502,7 +278,13 @@ if __name__ == '__main__':
         g = get_gt_graph(kmers)
         g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}.graphml".format(exp,klow,k)))
         create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}{{}}".format(exp,klow,k)),g,k, ["id","abundance"])
-
+        
+        # kmers.detach_abundance(k,1)
+        
+        # g = get_gt_graph(kmers)
+        # g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_clean_{}k_{}_{}.graphml".format(exp,klow,k)))
+        # create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_clean_{}k_{}_{}{{}}".format(exp,klow,k)),g,k, ["id","abundance"])
+        
         ### Retrieve unitigs
         unitigs = get_unitigs_bcalm(kmers, k, on_unitig=False)
         unitigs.compute_edges(k)
@@ -515,37 +297,35 @@ if __name__ == '__main__':
         
         
         
-        u_ref_string, u_ref_id = compute_unitig_ref(unitigs, ref_seqs)
+        # u_ref_string, u_ref_id = compute_unitig_ref(unitigs, ref_seqs)
         # for kmer in kmers:
         #     print(kmer.__repr__(), kmer.num())
         # for unitig in unitigs:
         #     print(unitig.seq, [kmer.id for kmer in unitig.kmers], unitig.num())
         ### Save compacted DBG
         c_g = get_gt_graph(unitigs)
-        c_g.vp["ref"] = c_g.new_vp("string", vals=u_ref_string)
-        print(len(u_ref_id))
-        for i, u_ref in enumerate(u_ref_id):
-            c_g.vp["ref_ {}".format(i)] = c_g.new_vp("float", vals=u_ref)
+        # c_g.vp["ref"] = c_g.new_vp("string", vals=u_ref_string)
+        # for i, u_ref in enumerate(u_ref_id):
+        #     c_g.vp["ref_ {}".format(i)] = c_g.new_vp("float", vals=u_ref)
         c_g.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}.graphml".format(exp,klow,k)))
-        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}{{}}".format(exp,klow,k)),c_g,k, vp = ["id","ref","abundance"])    
-        print(len(unitigs))
+        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}{{}}".format(exp,klow,k)),c_g,k, vp = ["id","abundance"])    
 
         ### Graph cleaning
-        if args.clipping:
+        # if args.clipping:
             # dbg , kmers_bcalm = dbg_tip_clipping(dbg,k,1,3,kmers)
             ### Save cleaned graph
             # edges_cleaned = create_edges_from_dbg(dbg)
-            unitigs.clip(k,n=k-1+n_clip)
-            unitigs.clip(k,a=10)
-            print('huge clipping')
-            print(len(unitigs))
-            if k==kmax:
-                unitigs.clip(k, a=10, n_neighbors=5)
-            print(len(unitigs))
-            
-            g_cleaned = get_gt_graph(unitigs)
-            g_cleaned.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_clean_{}k_{}_{}.graphml".format(exp,klow,k)))
-            create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_clean_{}k_{}_{}{{}}".format(exp,klow,k)),g_cleaned,k, ["id","abundance"])
+        unitigs.clip(k,n=k-1+n_clip)
+        unitigs.clip(k,a=5, n_neighbors=5)
+        # print('huge clipping')
+        # print(len(unitigs))
+        # if k==kmax:
+        #     unitigs.clip(k, a=10, n_neighbors=5)
+        # print(len(unitigs))
+        
+        g_cleaned = get_gt_graph(unitigs)
+        g_cleaned.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_clean_{}k_{}_{}.graphml".format(exp,klow,k)))
+        create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_clean_{}k_{}_{}{{}}".format(exp,klow,k)),g_cleaned,k, ["id","abundance"])
         components = []
         for u in unitigs:
             found = False
@@ -559,49 +339,70 @@ if __name__ == '__main__':
                 components[key][u]=u
                 components = add_unitigs_sets({uu:uu for uu in u.link[0]}, components, key=key)
                 components = add_unitigs_sets({uu:uu for uu in u.link[1]}, components, key=key)
-        print(len(components))
-        print([[len(ss) for ss in s] for s in components])
-        components = [s for s in components if len(s)>1]
-        components.sort(key = len)
-        chromosome = components[-1]
+        print("\tThere are {} connected components".format(len(components)))
+        # components = [s for s in components if len(s)>1]
+        component_length = [sum([len(u) for u in component])-(len(component)-1)*(k-1) for component in components]
+        components = [(component, cl) for (cl,component) in sorted(zip(component_length,components), key=lambda pair: pair[0])][::-1]
+        for i,(component,cl) in enumerate(components):
+            sep = "\t  -->\t" if i==0 else "\t\t"
+            print("{}#{}: {} unitigs (~{} blocks)".format(sep,i+1,len(component),cl))
+        chromosome = components[0][0]
         # g = get_gt_graph(unitigs)
         # g.save(os.path.join("graph_on_unitigs.graphml"))
         # create_gfa_csv("graph_on_unitigs{}",g,k)
 
         cyclic, seen = check_cycles(chromosome, verbose=False)
         if cyclic:
+            print("\tAt least one cycle found, trying to decycle...")
             best = max(chromosome, key = len)
             best = chromosome.pop(best)
             n = len(best)
             
-            split = n//2
-            s1 = Sequence(best.id,best.seq[:Sequence.n_b*split], best.abundance)
-            s2 = Sequence(len(unitigs),best.seq[Sequence.n_b*split:], best.abundance)
-            chromosome[s1]=s1
-            chromosome[s2]=s2
+            # [0  (split_s2  [split_s1    (n
+            # split_s1-split_s2=k-2
+            split_s2 = (n-k+2)//2
+            split_s1 = split_s2+k-2
+            
+            # s1 = s[0:split_s1(exclu)]
+            # s2 = s[split_s2:n(exclu)]
+            s1 = Sequence(best.id,best.seq[:Sequence.n_b*split_s1], best.abundance)
+            s2 = Sequence(len(unitigs),best.seq[Sequence.n_b*split_s2:], best.abundance)
+            s1.stability, s2.stability = -2,-2
+            chromosome.data[s1]=s1
+            chromosome.data[s2]=s2
             _ = chromosome.compute_edges(k)
-        starts=[]
-        for u in chromosome:
-            l1,l2 = len(u.link[0]) , len(u.link[1])
-            if l1*l2==0 and l1+l2!=0:
-                starts.append(u)
-        if not check_cycles(chromosome)[0]:
+            # print([[u.id for u in u_l] for u_l in s1.link])
+            # print([[u.id for u in u_l] for u_l in s2.link])
+            # chromosome.compute_order()
+            # for s in chromosome:
+            #     if s.id in [682, 2435, 2310,1802,316,485,]:
+            #         print(s.order,[[u.order for u in u_l] for u_l in s.link], s.num(),s.num(canonical=False))
             starts= [s1,s2]
         else:
-            raise ValueError
-        
-
+            starts=[]
+            for u in chromosome:
+                l1,l2 = len(u.link[0]) , len(u.link[1])
+                if l1*l2==0 and l1+l2!=0:
+                    starts.append(u)
+        if not check_cycles(chromosome)[0]:
+            start, end = starts[1],starts[0]
+            print("\tAcyclic graph found")
+            need_break=True
+        else:
+            print("\tStill cycles, larger k.")
         t2 = time()
-        t=t2-t1
-        h,m,s = t//3600, t%3600//60,t%60
-        print("Step k = {:{}} processed in {:0=2.0f}:{:0=2.0f}:{:0=2.2f}, there are {} kmers and {} unitigs with {} unitigs selected" .format(k,len(str(kmax+1)),h,m,s,len(kmers),len(unitigs),len(prev_unitigs)))
+        t_tot=t2-t1
+        print("\tStep k = {:{}} processed in {:0=2.0f}:{:0=2.0f}:{:0=2.2f}, there are {} kmers and {} unitigs" .format(k,len(str(kmax+1)),*hms(t_tot),len(kmers),len(unitigs)))
         filename = os.path.join(RES_OUTPUT_FOLDER,"res_unitigs_{}k_{}_{}.pkl".format(exp,klow,k))
         save_sequences(unitigs, filename)
-        
-        if len(starts) ==2:
-            start, end = starts[1],starts[0]
-            print("Acyclid graph found")
+            
+        if need_break:
             break
+
+    print("De Bruijn graph backbone construction time: {:0=2.0f}:{:0=2.0f}:{:0=2.2f}".format(*hms(time()-t)))
+ 
+    t= time()
+    print("\n"+"-"*50+"\n"+"\tDAG processing\n"+"-"*50)
     
     coordinates_1 = dict()
     coordinates_2 = dict()
@@ -617,18 +418,22 @@ if __name__ == '__main__':
     coordinates_2 = {s:([max_2-x[0][1], max_2-x[0][0]],-x[1]) for s,x in coordinates_2.items()}
 
     coordinates = dict()
-
+    
+    g = get_gt_graph(chromosome)
+    g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_stability.graphml"))
+    
     for s in chromosome:
         if s in coordinates_1 and s in coordinates_2:
             coordinates[s] = (np.array(coordinates_1[s][0])+np.array(coordinates_2[s][0]),coordinates_1[s][1])
+            s.debug=str(coordinates_1[s]),str(coordinates_2[s]),str(coordinates[s])
     max_3 = max([coordinates[s][0][1] for s in coordinates])
     
     coordinates_diff = {s:coordinates_2[s][0][0]-coordinates_1[s][0][0] for s in coordinates}
     for u in coordinates:
         u.stability = coordinates_diff[u]
     
-    # g = get_gt_graph(chromosome)
-    # g.save(os.path.join("graph_stability.graphml"))
+    g = get_gt_graph(chromosome)
+    g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_stability_1.graphml"))
     for s in coordinates:
         if (coordinates_2[s][0][0]-coordinates_1[s][0][0])>6:
             print(str(s))
@@ -649,8 +454,6 @@ if __name__ == '__main__':
     # Create topological order from coordinates
     topological_order = [d+ (s,) for s,d  in coordinates.items()]
     topological_order.sort(key = lambda x: x[0][0])
-    # for s in chromosome:
-    #     s.topo_order = -1
     for i,s in enumerate(topological_order):
         s[2].topo_order = i
 
@@ -692,7 +495,7 @@ if __name__ == '__main__':
     all_path_bubbles = []
     for i in range(len(stables)-1):
         s1,s2 = topological_order[stables[i]][2], topological_order[stables[i+1]][2]
-        all_path_bubbles.append(get_all_path(s1,s2,coordinates[s1][1],set(),[],[]))
+        all_path_bubbles.append(get_all_path(s1,s2,coordinates[s1][1],set(),[],coordinates,[]))
     for all_path in all_path_bubbles:
         # print("------new--------")
         for p,path in enumerate(all_path):
@@ -703,12 +506,16 @@ if __name__ == '__main__':
                 # print(len(list(get_num(*path[i])[(k-1):])))
             all_path[p]=[all_path[p],fusion]
             # print(len(fusion))
+    
+    g = get_gt_graph(chromosome)
+    g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_stability_2.graphml"))
 
     # Compute POA and set list consensus in each bubbles and merge theme with stables unitigs
     poa_list = []
     consensus_set_poa = [set([c]) for c in get_num(*(topological_order[stables[0]][1:][::-1]))]
     for i,bubble in enumerate(all_path_bubbles):
         sequences = [s[1] for s in bubble]
+        print([s.id for s in sequences])
         g = generate_poa_graph(sequences)
         poa_list.append(g)
         # g.generateAlignmentStrings()
@@ -725,12 +532,13 @@ if __name__ == '__main__':
                 print(i)
         consensus_set_poa = consensus_set_poa + l[(k-1):]
         consensus_set_poa = consensus_set_poa + [set([c]) for c in get_num(*topological_order[stables[i+1]][1:][::-1])][(k-1):]
-    print(len(consensus_set_poa))
+    consensus_set_poa = consensus_set_poa[:-(k-2)]
+    # print(len(consensus_set_poa))
 
-    g = poa_list[38]
-    for a in g.generateAlignmentStrings():
-        print(a[1])
-    print(g.generateAlignment())
+    # g = poa_list[38]
+    # for a in g.generateAlignmentStrings():
+    #     print(a[1])
+    # print(g.generateAlignment())
     # poa_list = []
     # for k,bubble in enumerate(bubbles):
     #     print(k)
@@ -745,8 +553,6 @@ if __name__ == '__main__':
     #     with open("poa_{}.html".format(k),"w") as f:
     #         g.htmlOutput(f)
     get_num(*topological_order[stables[0]][1:][::-1])
-    k=23
-    from graph.poa import POAGraph
 
     g = POAGraph(seq=get_num(*topological_order[stables[0]][1:][::-1]))
     pn = g._nextnodeID-1
@@ -908,18 +714,18 @@ if __name__ == '__main__':
     
     gene_margin_funs = {"short":lambda x,i: x[1-i], "long": lambda x,i: x[i], 'middle': lambda x,i: (x[0]+x[1])//2}
 
-
+    t = time()
     margin_mode = ("next_gene","middle")
     if margin_mode is not None and margin_mode[0]=="next_gene":
         gene_margin_fun = gene_margin_funs[margin_mode[1]]
-    read_ids = {read_name:i for i, read_name in enumerate(read_data)}
+    # read_ids = {read_name:i for i, read_name in enumerate(read_data)}
     read_names = [read_name for read_name in read_data]
-    block_sequences = [[] for _ in range(len(id_list_of_parts))]
-
-    for block, block_list in zip(block_sequences,id_list_of_parts):
+    marginmode = "_".join([str(x) for x in margin_mode])
+    for i, block_list in enumerate(id_list_of_parts):
+        block=[]
         for read_id, is_canonical, i in block_list:
             read_name = read_names[read_id]
-            s_read = fastq[read_name]
+            s_read = fastq[read_name].seq
             read, read_pos, read_seq = read_data[read_name], gene_positions_reads[read_name], read_seqs[read_id]
             # print(len(read),len(read_seq))
             if is_canonical^read_seq.original_order:
@@ -951,13 +757,10 @@ if __name__ == '__main__':
             # print(block_b,block_e, len(s_read))
             s = s_read[block_b:(block_e+1)]
             if is_canonical^read_seq.original_order:
-                s_r= s.reverse_complement()
-                s_r.id, s_r.name, s_r.description = s.id+"rev", s.name+"rev", s.description
-                s = s_r
-            block.append(s)
-    marginmode = "_".join([str(x) for x in margin_mode])
-    for i,b in enumerate(block_sequences):
-        with open(os.path.join(RES_OUTPUT_FOLDER,"coordinates_fasta","{}_{}.fasta".format(marginmode,i)), "w") as output_handle:
-            SeqIO.write(b, output_handle, "fasta")
-    print("fasta : ",time()-t)
+                s = pyfastx.reverse_complement(s)
+            block.append(SeqRecord.SeqRecord(SeqRecord.Seq(s),id=read_name,name=read_name, description=read_name))
+        with open(os.path.join(RES_FASTA_FOLDER,"{}_{}.fasta".format(marginmode,i)), "w") as output_handle:
+            SeqIO.write(block, output_handle, "fasta")
+    print("Time for MSA fasta: {:0=2.0f}:{:0=2.0f}:{:0=2.2f}".format(*hms(time()-t)))
     
+    print("\nTOTAL TIME: {:0=2.0f}:{:0=2.0f}:{:0=2.2f}".format(*hms(time()-t_start)))
