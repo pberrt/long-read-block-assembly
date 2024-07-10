@@ -8,6 +8,7 @@
 - Define the parameters for benchmark (cliping, multi-k, gene-margin...)
 - Define the metrics for benchmark, especially time and RAM consumption. But also k-min to prevent local cycles
 - Test on Zamin data
+- Define a minimal env and try on another machine/cluster
 
 ## Input Data
 
@@ -53,7 +54,7 @@
 - Ability to compute if a reference sequence is included in the *cyclic dag*, or even another *cyclic dag*.
 - Compare MR genes fasta on final consensus
 - BWA reads on alignement to check where there are mismatch in the dag
-
+- Check ref sequences (need new fasta from Dan, for 4483, 4485 in processing, 4495)
 
 
 

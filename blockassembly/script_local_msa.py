@@ -35,7 +35,8 @@ def get_args():
     parser.add_argument('--kmin',type=int,default=2)
     parser.add_argument('--kmax', type=int, default=35)
     parser.add_argument('--clipping', action="store_true")
-    parser.add_argument('--kmer-abundance', choices = ["reads", "median_unitigs", "max_unitigs_reads"], default="reads")
+    parser.add_argument('--abundance_cleaning', action="store_true")
+    parser.add_argument('--kmer-abundance', choices = ["reads", "median_unitigs", "max_unitigs_reads"], default="max_unitigs_reads")
     args = parser.parse_args()
     return args
        
@@ -45,6 +46,10 @@ if __name__ == '__main__':
     
     exp=args.exp
     exp = "TEST"
+    if args.abundance_cleaning:
+        exp+="_ac"
+    else:
+        exp+="_nac"
     sample_name = args.sample
     # args.exp = "real"
     # args.kmin=23
@@ -75,6 +80,7 @@ if __name__ == '__main__':
 
 
     # TODO add ref parsing and ref data
+    print("Output folder: ",RES_OUTPUT_FOLDER)
     # ref_file = "../input/truth_data/GCA_027944875.1_ASM2794487v1_genomic.truth_genes.json"
     # read_file = "../input/new_data/SRR23044204_1.pandora_gene_calls.json"
     # read_pos_file = "../input/new_data/SRR23044204_1.pandora_gene_positions.json"
@@ -241,7 +247,7 @@ if __name__ == '__main__':
     kmer_sets = []
     kmer_count_check =[]
     need_break=False
-    n_clip = 5
+    n_clip = 20
 
     for k in range(kmin, kmax+1):
         t1 = time()
@@ -278,12 +284,11 @@ if __name__ == '__main__':
         g = get_gt_graph(kmers)
         g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}.graphml".format(exp,klow,k)))
         create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_{}k_{}_{}{{}}".format(exp,klow,k)),g,k, ["id","abundance"])
-        
-        # kmers.detach_abundance(k,1)
-        
-        # g = get_gt_graph(kmers)
-        # g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_clean_{}k_{}_{}.graphml".format(exp,klow,k)))
-        # create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_clean_{}k_{}_{}{{}}".format(exp,klow,k)),g,k, ["id","abundance"])
+        if args.abundance_cleaning:
+            kmers.detach_abundance(k,1)
+            g = get_gt_graph(kmers)
+            g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_clean_{}k_{}_{}.graphml".format(exp,klow,k)))
+            create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"graph_clean_{}k_{}_{}{{}}".format(exp,klow,k)),g,k, ["id","abundance"])
         
         ### Retrieve unitigs
         unitigs = get_unitigs_bcalm(kmers, k, on_unitig=False)
@@ -316,7 +321,7 @@ if __name__ == '__main__':
             ### Save cleaned graph
             # edges_cleaned = create_edges_from_dbg(dbg)
         unitigs.clip(k,n=k-1+n_clip)
-        unitigs.clip(k,a=5, n_neighbors=5)
+        unitigs.clip(k,a=10, n_neighbors=5)
         # print('huge clipping')
         # print(len(unitigs))
         # if k==kmax:

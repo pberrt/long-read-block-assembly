@@ -1,0 +1,33 @@
+,State,,Error type,k_max,
+GCA_027944575.1_ASM2794457v1_genomic,Not good,,lose main cyclicity due to low depth,13,
+GCA_027944595.1_ASM2794459v1_genomic,Not good,,fragmented,20,
+GCA_027944615.1_ASM2794461v1_genomic,Not good,,fragmented,16,
+GCA_027944635.1_ASM2794463v1_genomic,Not good,,fragmented,24,
+GCA_027944655.1_ASM2794465v1_genomic,Failed,"init_sequence = sequences[0]
+IndexError: list index out of range",fragmented,23,
+GCA_027944675.1_ASM2794467v1_genomic,Failed,"init_sequence = sequences[0]
+IndexError: list index out of range",fragmented,20,K=17: palindroms (self rev loop)
+GCA_027944695.1_ASM2794469v1_genomic,Failed,"max_3 = max([coordinates[s][0][1] for s in coordinates])
+ValueError: max() arg is an empty sequence",fragmented,34,
+GCA_027944715.1_ASM2794471v1_genomic,Failed,"init_sequence = sequences[0]
+IndexError: list index out of range",Main cyclicity lost,28,
+GCA_027944735.1_ASM2794473v1_genomic,Seems good,,fragmented,16,
+GCA_027944775.1_ASM2794477v1_genomic,Seems good,,A bit fragmented,29,
+GCA_027944795.1_ASM2794479v1_genomic,Seems good,,A bit fragmented,32,
+GCA_027944815.1_ASM2794481v1_genomic,Seems good,,fragmented,31,
+GCA_027944835.1_ASM2794483v1_genomic,Failed,"max_3 = max([coordinates[s][0][1] for s in coordinates])
+ValueError: max() arg is an empty sequence",fragmented,35,
+GCA_027944855.1_ASM2794485v1_genomic,Seems good,,Ok but big buble,14,<<<
+GCA_027944875.1_ASM2794487v1_genomic,Seems good,,Main cyclicity lost + shortcuts,23,
+GCA_027944895.1_ASM2794489v1_genomic,Failed,"max_3 = max([coordinates[s][0][1] for s in coordinates])
+ValueError: max() arg is an empty sequence",Main cyclicity lost,28,
+GCA_027944915.1_ASM2794491v1_genomic,Seems good,,fragmented,22,
+GCA_027944935.1_ASM2794493v1_genomic,Failed,"s = start
+NameError: name 'start' is not defined. Did you mean: 'starts'?",fragmented,35 by default,
+GCA_027944955.1_ASM2794495v1_genomic,Seems good,,"Good, but wrong topo order",26,<<< nice loop
+GCA_027944995.1_ASM2794499v1_genomic,Seems good,,Fragmented or main cyclicity lost,27,
+GCA_027945015.1_ASM2794501v1_genomic,Seems good,,Main cyclicity lost,25,
+GCA_027945035.1_ASM2794503v1_genomic,Seems good,,Ok but big buble,22,
+GCA_027945055.1_ASM2794505v1_genomic,Seems good,,fragmented,20,
+GCA_028551585.1_ASM2855158v1_genomic,Failed,"max_3 = max([coordinates[s][0][1] for s in coordinates])
+ValueError: max() arg is an empty sequence",Good ? ,26,
