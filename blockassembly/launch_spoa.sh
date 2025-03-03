@@ -1,5 +1,6 @@
 # /bin/bash
 
+# Compute MSA on each fasta file (each block)
 
 N=6
 

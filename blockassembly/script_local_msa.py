@@ -77,8 +77,10 @@ if __name__ == '__main__':
     read_pos_file = os.path.join(INPUT_FOLDER,"gene_positions_with_gene_filtering.json")
     # read_file = os.path.join(INPUT_FOLDER,"gene_calls_without_gene_filtering.json")
     # read_pos_file = os.path.join(INPUT_FOLDER,"gene_positions_without_gene_filtering.json")
-
-
+    
+    ##############
+    # LOAD FILES #
+    ##############
     # TODO add ref parsing and ref data
     print("Output folder: ",RES_OUTPUT_FOLDER)
     # ref_file = "../input/truth_data/GCA_027944875.1_ASM2794487v1_genomic.truth_genes.json"
@@ -105,6 +107,8 @@ if __name__ == '__main__':
     # unitigs = load_sequences(filename)
     # unitigs = Graph()
 
+    ### Encoding the reads using integers (-n and n represent the same block but in reverse complement)
+
     blocks2reads = {}
     for k,g in read_data.items():
         for block in g:
@@ -119,6 +123,8 @@ if __name__ == '__main__':
     alphabet = [("+"+p1,"-"+p1) for p1 in blocks]
     bi_alphabet = (alphabet,{k:((i+1)*((-1)**j)) for i, ks in enumerate(alphabet) for j, k in enumerate(ks)})
     l_alphabet = len(alphabet)
+
+    ### Check the number of bit required for encoding
     if l_alphabet < 2**7:
         Sequence.n_b = 1
     elif l_alphabet < 2**15:
@@ -237,6 +243,11 @@ if __name__ == '__main__':
  
     t= time()
     print("\n"+"-"*50+"\n"+"\tDe Bruijn graph backbone construction\n"+"-"*50)
+
+    #########################
+    # MULTI-K COMPACTED-DBG #
+    #########################
+
     subseq = read_seqs[:]
     kmin, kmax = args.kmin, args.kmax
     # prev_unitigs = []
@@ -249,9 +260,12 @@ if __name__ == '__main__':
     need_break=False
     n_clip = 20
 
+
+    ### Start Multi-k
     for k in range(kmin, kmax+1):
         t1 = time()
         print("Start k={}".format(k))
+        
         ### Count kmers
         
         klow = kmin
@@ -292,30 +306,37 @@ if __name__ == '__main__':
         
         ### Retrieve unitigs
         unitigs = get_unitigs_bcalm(kmers, k, on_unitig=False)
+        
+        ### Create compacted DBG on unitigs
+        
         unitigs.compute_edges(k)
         # l_u = [len(u) for u in unitigs]
         # l_u.sort()
         # print(l_u[:10])
         # print(l_u[-10:])
-        ### Create compacted DBG on unitigs
+        
+        
         # c_edges = get_compacted_dbg_edges_from_unitigs(unitigs,k)
-        
-        
+              
         
         # u_ref_string, u_ref_id = compute_unitig_ref(unitigs, ref_seqs)
         # for kmer in kmers:
         #     print(kmer.__repr__(), kmer.num())
         # for unitig in unitigs:
         #     print(unitig.seq, [kmer.id for kmer in unitig.kmers], unitig.num())
+        
         ### Save compacted DBG
+        
         c_g = get_gt_graph(unitigs)
         # c_g.vp["ref"] = c_g.new_vp("string", vals=u_ref_string)
+        
         # for i, u_ref in enumerate(u_ref_id):
         #     c_g.vp["ref_ {}".format(i)] = c_g.new_vp("float", vals=u_ref)
         c_g.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}.graphml".format(exp,klow,k)))
         create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_{}k_{}_{}{{}}".format(exp,klow,k)),c_g,k, vp = ["id","abundance"])    
 
         ### Graph cleaning
+
         # if args.clipping:
             # dbg , kmers_bcalm = dbg_tip_clipping(dbg,k,1,3,kmers)
             ### Save cleaned graph
@@ -331,6 +352,9 @@ if __name__ == '__main__':
         g_cleaned = get_gt_graph(unitigs)
         g_cleaned.save(os.path.join(RES_OUTPUT_FOLDER,"c_graph_clean_{}k_{}_{}.graphml".format(exp,klow,k)))
         create_gfa_csv(os.path.join(RES_OUTPUT_FOLDER,"c_graph_clean_{}k_{}_{}{{}}".format(exp,klow,k)),g_cleaned,k, ["id","abundance"])
+        
+        ### Compute connected components
+
         components = []
         for u in unitigs:
             found = False
@@ -346,18 +370,25 @@ if __name__ == '__main__':
                 components = add_unitigs_sets({uu:uu for uu in u.link[1]}, components, key=key)
         print("\tThere are {} connected components".format(len(components)))
         # components = [s for s in components if len(s)>1]
+        ### Estimation of the length
         component_length = [sum([len(u) for u in component])-(len(component)-1)*(k-1) for component in components]
         components = [(component, cl) for (cl,component) in sorted(zip(component_length,components), key=lambda pair: pair[0])][::-1]
         for i,(component,cl) in enumerate(components):
             sep = "\t  -->\t" if i==0 else "\t\t"
             print("{}#{}: {} unitigs (~{} blocks)".format(sep,i+1,len(component),cl))
+        
+        ### Isolate chromosome (longest connected component)
+        
         chromosome = components[0][0]
         # g = get_gt_graph(unitigs)
         # g.save(os.path.join("graph_on_unitigs.graphml"))
         # create_gfa_csv("graph_on_unitigs{}",g,k)
 
+        ### Check cyclicity of the graph 
+
         cyclic, seen = check_cycles(chromosome, verbose=False)
         if cyclic:
+            ### If cyclic, split the longest unitig to decycle (assumption it is in the cycle)
             print("\tAt least one cycle found, trying to decycle...")
             best = max(chromosome, key = len)
             best = chromosome.pop(best)
@@ -384,12 +415,16 @@ if __name__ == '__main__':
             #         print(s.order,[[u.order for u in u_l] for u_l in s.link], s.num(),s.num(canonical=False))
             starts= [s1,s2]
         else:
+            ### problem here if not cyclic
             starts=[]
             for u in chromosome:
                 l1,l2 = len(u.link[0]) , len(u.link[1])
                 if l1*l2==0 and l1+l2!=0:
                     starts.append(u)
+        
+        ### Check if still cyclicity after removing main cycle
         if not check_cycles(chromosome)[0]:
+            ### if no cycle it is ready for next phase
             start, end = starts[1],starts[0]
             print("\tAcyclic graph found")
             need_break=True
@@ -405,10 +440,18 @@ if __name__ == '__main__':
             break
 
     print("De Bruijn graph backbone construction time: {:0=2.0f}:{:0=2.0f}:{:0=2.2f}".format(*hms(time()-t)))
- 
+    
+    ### As there are no cycle, construction of a DAG (directed acyclic graph) of blocks
+
+    ################################
+    # Construction of the Backbone #
+    ################################
+
     t= time()
     print("\n"+"-"*50+"\n"+"\tDAG processing\n"+"-"*50)
     
+    ### Compute the "coordinates" of the unigis in the dag
+
     coordinates_1 = dict()
     coordinates_2 = dict()
     s = start
@@ -424,6 +467,7 @@ if __name__ == '__main__':
 
     coordinates = dict()
     
+
     g = get_gt_graph(chromosome)
     g.save(os.path.join(RES_OUTPUT_FOLDER,"graph_stability.graphml"))
     
@@ -449,14 +493,17 @@ if __name__ == '__main__':
         for i,b in enumerate(s.num(canonical=(mode==1))):
             consensus_set_coordinates[c[0]+2*i].add(b)
             consensus_set_coordinates[c[0]+2*i+1].add(b)
+    
     ## Compute consensus from local POA
+    
     # sequences = ["abcdef","abcddef"]
     # sequences = [[12301,12302,12303,12304,12305,12306,12307,81230],[12301,12302,12302,12303,12304,12305,12306,12307,81230]]
     # sequences = [read.num() for read in read_seqs[:100]]
     # # test_order_of_alignment_case1()
     # g = generate_poa_graph(sequences)
     # # g.generateAlignmentStrings()
-    # Create topological order from coordinates
+    
+    #  Create topological order from coordinates
     topological_order = [d+ (s,) for s,d  in coordinates.items()]
     topological_order.sort(key = lambda x: x[0][0])
     for i,s in enumerate(topological_order):
@@ -485,6 +532,7 @@ if __name__ == '__main__':
     for s in stables:
         topological_order[s][2].stability=1
     
+    # Get bubbles
     bubbles = [[s[2] for s in topological_order[stables[i]+1:stables[i+1]]] for i in range(len(stables)-1)]
     # while True:
     #     mode = coordinates[u][1]
@@ -559,6 +607,7 @@ if __name__ == '__main__':
     #         g.htmlOutput(f)
     get_num(*topological_order[stables[0]][1:][::-1])
 
+    # Create poa graph
     g = POAGraph(seq=get_num(*topological_order[stables[0]][1:][::-1]))
     pn = g._nextnodeID-1
     for i,poa_g in enumerate(poa_list):
@@ -610,7 +659,8 @@ if __name__ == '__main__':
             g.addEdge(pn, nid,None)
             pn = nid
     g.toposort()
-
+    
+    # Save POA graph
     g_gt = get_gt_graph_poa(g)
     g_gt.save(os.path.join(RES_OUTPUT_FOLDER,"full_poa.graphml"))
 
@@ -629,7 +679,11 @@ if __name__ == '__main__':
             if s1.symmetric_difference(s2) != set([None]):
                 print(s1,s2,"NON")
                 break
-    ## Align read on consensus
+    
+    ###############################
+    # Align reads on the backbone #
+    ###############################
+
     ### Rough localisation
     l_thresh, u_thresh = 0.5,2
 
@@ -677,7 +731,7 @@ if __name__ == '__main__':
     ratio_max_block2_poa = [mb[0]/len(s) for mb, s in zip(max_block2_poa, read_seqs)]
     y_block2_poa = np.array(ratio_max_block2_poa)>0.4
 
-    ### Align on sub-sequence of the consensus POA
+    ### Fine alignement on sub-sequence of the consensus POA
     in_chr_list = (y_block2_poa==1)
     start_end_block_list = [(s,e,l) for _,s,e,l in max_block2_poa]
     is_canonical_list = np.array([mc[0] for mc in main_cano[1]])==0
@@ -719,6 +773,7 @@ if __name__ == '__main__':
     
     gene_margin_funs = {"short":lambda x,i: x[1-i], "long": lambda x,i: x[i], 'middle': lambda x,i: (x[0]+x[1])//2}
 
+    ### Ectract read sub-sequence for each coordinate to a fasta file 
     t = time()
     margin_mode = ("next_gene","middle")
     if margin_mode is not None and margin_mode[0]=="next_gene":

@@ -1,5 +1,7 @@
 # /bin/bash
 
+# Align consecutive MSA consensus
+
 # for exp in Raw nucleotides_250 next_gene_short next_gene_long next_gene_middle ; do
 for exp in next_gene_middle; do
     ls consensus_fasta/"$exp"_*.fasta |wc
